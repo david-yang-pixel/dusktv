@@ -152,6 +152,8 @@ export default function Preview() {
     if (mode === 'empty') items = [];
     if (mode === 'broken') items = [{ ...movies[0], poster: '/missing-poster.jpg' }];
     if (mode === 'long-title') items = [{ ...movies[0], title: '这是一部用于检查电视界面长片名显示与截断效果的示例影片' }];
+    // A resumed title with every detail present: two title lines on a phone plus a details row that wraps.
+    if (mode === 'resume-long') items = [{ ...movies[0], title: '蜘蛛侠：崭新之日', sourceName: '🎬魔都资源', progress: 0.33, episodeIndex: 1, play_time: 1200 }, ...movies.slice(1)];
     content = <CinemaHome categories={categories} selectedCategory={category} items={items} loading={mode === 'loading'} loadingMore={false} message={mode === 'error' ? '服务器暂时无法连接，请稍后重试。' : mode === 'config' ? '添加 MoonTV 服务器，开始浏览你的影片。' : undefined} needsConfiguration={mode === 'config'} isLoggedIn={loggedIn}
       imageUrl={url => url} onLoadMore={() => {}} onRetry={() => { location.search = ''; }} onCategorySelect={value => setCategory({ ...value, tag: value.tag || value.tags?.[0] })} onTagSelect={tag => setCategory({ ...category, tag })}
       onOpen={item => item.progress !== undefined ? go(`play/${item.id}`) : open(item)} onRemoveRecord={item => setConfirm({ title: '删除观看记录', message: `删除“${item.title}”的示例观看记录？`, action: () => setRecords(records.filter(record => record.id !== item.id)) })} onNavigate={go} onLogout={() => setLoggedIn(false)} />;

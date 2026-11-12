@@ -39,7 +39,9 @@ export default function CinemaHome(props: Props) {
   const { width, height } = useWindowDimensions();
   const { gutter, compact, short, scale } = useCinemaLayout();
   // A wide but short window needs denser chrome, not larger type and posters.
-  const heroHeight = compact ? 200 : Math.max(200 * scale, Math.min(height * 0.31, 280 * scale));
+  // Phone portrait has no fixed band: a long title, a second line of details or a larger system font
+  // would spill out of one, over the search bar above and the categories below. Its text sets the height.
+  const heroHeight = Math.max(200 * scale, Math.min(height * 0.31, 280 * scale));
   const categoryHeight = (props.selectedCategory.tags?.length ? 108 : 62) * scale;
   const cardHeightBudget = height - 78 * scale - heroHeight - categoryHeight - 110 * scale - 26;
   const cardWidth = compact ? (width - gutter * 2 - FEED_GAP * (FEED_COLUMNS - 1)) / FEED_COLUMNS : short ? 118 : Math.max(106 * scale, Math.min(210 * scale, cardHeightBudget / 1.5 + 10));
@@ -72,8 +74,8 @@ export default function CinemaHome(props: Props) {
   const bodyMessage = props.message || (props.selectedCategory.type === 'record' ? '还没有观看记录，选一部影片开始吧。' : '这个分类暂时没有影片，试试其他分类或搜索。');
 
   const feature = showContent && featured && (
-          <View testID="home-feature" style={short ? { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: gutter, paddingVertical: 10 } : { height: heroHeight, paddingHorizontal: gutter, justifyContent: 'center', alignItems: 'flex-start' }}>
-            <View style={short ? { flex: 1, gap: 6 } : { width: compact ? '58%' : '52%', gap: 12 * scale }}>
+          <View testID="home-feature" style={short ? { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: gutter, paddingVertical: 10 } : compact ? { paddingHorizontal: gutter, paddingTop: 14, paddingBottom: 18, alignItems: 'flex-start' } : { height: heroHeight, paddingHorizontal: gutter, justifyContent: 'center', alignItems: 'flex-start' }}>
+            <View style={short ? { flex: 1, gap: 6 } : { width: compact ? '100%' : '52%', gap: 12 * scale }}>
               <View style={[styles.nav, { gap: 9 * scale }]}>
                 {resume ? <Play size={14 * scale} color={c.accent} /> : <Tv size={15 * scale} color={c.accent} />}
                 <Text style={{ color: c.accent, fontSize: 14 * scale, fontWeight: '500' }}>{resume ? '接着上次的故事' : props.selectedCategory.title}</Text>
