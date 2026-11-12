@@ -38,10 +38,9 @@ export const PlayerControls = ({ showControls, setShowControls }: { showControls
 };
 
 // Phones and tablets: transport controls drawn over the picture.
-export const TouchPlayerControls = ({ immersive, onInteract }: { immersive: boolean; onInteract?: () => void }) => {
+export const TouchPlayerControls = ({ immersive, onInteract, onBack, onFullscreen }: { immersive: boolean; onInteract?: () => void; onBack: () => void; onFullscreen?: () => void }) => {
   const { p, view } = usePlayerView();
-  const router = useRouter();
-  return <CinemaTouchControls {...view} immersive={immersive} onInteract={onInteract} onBack={() => router.back()} onSeekBy={p.seek} onSeekTo={p.seekTo} onHide={() => p.setShowControls(false)} />;
+  return <CinemaTouchControls {...view} immersive={immersive} onInteract={onInteract} onFullscreen={onFullscreen} onBack={onBack} onSeekBy={p.seek} onSeekTo={p.seekTo} onHide={() => p.setShowControls(false)} />;
 };
 
 // Phones and tablets in portrait: episodes and playback settings under the picture.

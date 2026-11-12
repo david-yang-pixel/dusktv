@@ -76,6 +76,8 @@ function DemoTouchPlayer({ movie, onBack }) {
     onNext: () => setEpisode(value => Math.min(demoEpisodes.length - 1, value + 1)), onSources: () => setDialog('sources'), onSpeed: () => setDialog('speed'),
     onIntro: () => setIntro(intro ? 0 : status.position), onOutro: () => setOutro(outro ? 0 : Math.max(0, status.duration - status.position)),
   };
+  // The app locks the screen orientation; a browser can only do that from its own full-screen mode.
+  const toggleFullscreen = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else document.documentElement.requestFullscreen?.().then(() => window.screen.orientation?.lock?.('landscape')).catch(() => {}); };
   const options = { episodes: demoEpisodes, sources: demoSources, speed: demoRates.map(value => `${value}×`) }[dialog] || [];
   const selected = { episodes: episode, sources: source, speed: demoRates.indexOf(rate) }[dialog];
   const picture = <View style={StyleSheet.absoluteFill}>
@@ -85,7 +87,7 @@ function DemoTouchPlayer({ movie, onBack }) {
   return <>
     <CinemaPlayerStage stacked={stacked} video={picture}
       overlay={visible && <CinemaTouchControls {...shared} immersive={!stacked} playing={status.playing} position={status.position} duration={status.duration} onInteract={keepAlive}
-        onBack={onBack} onToggle={() => { const el = video.current; if (!el) return; if (el.paused) el.play(); else el.pause(); }} onSeekBy={delta => seekTo(status.position + delta)} onSeekTo={seekTo} onEpisodes={() => setDialog('episodes')} onHide={() => setVisible(false)} />}
+        onBack={onBack} onToggle={() => { const el = video.current; if (!el) return; if (el.paused) el.play(); else el.pause(); }} onSeekBy={delta => seekTo(status.position + delta)} onSeekTo={seekTo} onEpisodes={() => setDialog('episodes')} onHide={() => setVisible(false)} onFullscreen={toggleFullscreen} />}
       panel={<CinemaTouchPanel {...shared} episodes={demoEpisodes} episodeIndex={episode} onEpisode={setEpisode} />} />
     <CinemaChoiceDialog visible={!!dialog} title={{ episodes: '选择剧集', sources: '选择播放源', speed: '播放速度' }[dialog] || ''} options={options.map((label, index) => ({ value: String(index), label }))} selected={String(selected)} onClose={() => setDialog('')}
       onSelect={value => { const index = Number(value); if (dialog === 'episodes') setEpisode(index); else if (dialog === 'sources') setSource(index); else setRate(demoRates[index]); setDialog(''); }} />
@@ -105,6 +107,7 @@ export default function Preview() {
   const [modal, setModal] = useState(''), [confirm, setConfirm] = useState(null), [loginError, setLoginError] = useState('');
   const [liveGroup, setLiveGroup] = useState('纪实'), [channel, setChannel] = useState('nature'), [fullscreen, setFullscreen] = useState(false);
   const [detailSource, setDetailSource] = useState('preview');
+  const [account, setAccount] = useState({ username: '', password: '' });
   const [page, itemId] = route.split('/');
   const movie = movies.find(item => item.id === itemId) || movies[0];
   const mode = new URLSearchParams(location.search).get('state');
@@ -135,7 +138,7 @@ export default function Preview() {
   else if (page === 'play') content = <DemoPlayer movie={movie} onBack={back} />;
   else if (page === 'touch-play') content = <DemoTouchPlayer movie={movie} onBack={back} />;
   else if (page === 'favorites') content = <CinemaLibrary {...nav} items={mode === 'empty' ? [] : movies.filter(item => favoriteIds.includes(item.id))} loading={mode === 'loading'} error={mode === 'error' ? '暂时无法读取收藏。' : null} imageUrl={url => url} onRetry={() => { location.search = ''; }} onOpen={open} />;
-  else if (page === 'settings') content = <CinemaSettings {...nav} apiUrl={settings.api} m3uUrl={settings.m3u} remoteEnabled={settings.remote} remoteRunning={false} remoteError={settings.remote ? '预览模式不启动远程输入服务。' : null} loggedIn={loggedIn} dirty={dirty} saving={false} savedMessage="设置保存在本地预览中" onApiChange={api => { setSettings({ ...settings, api }); setDirty(true); }} onM3uChange={m3u => { setSettings({ ...settings, m3u }); setDirty(true); }} onRemoteChange={remote => { setSettings({ ...settings, remote }); setDirty(true); }} onSave={() => { saveDemo('settings', settings); setDirty(false); setNotice('已保存本地预览设置，未连接服务器。'); }} onAccount={() => { if (loggedIn) { setLoggedIn(false); setPassword(''); } else { setLoginError(''); setModal('login'); } }} updateSection={<View style={{ paddingVertical: 25, gap: 15 }}><Text style={{ color: '#f5f6f7', fontSize: 21, fontWeight: '600' }}>应用更新</Text><Text style={{ color: '#b8bec2' }}>版本信息与更新弹窗预览</Text><View style={{ alignSelf: 'flex-start' }}><CinemaButton label="查看更新弹窗" onPress={() => setModal('update')} /></View></View>} />;
+  else if (page === 'settings') content = <CinemaSettings {...nav} account={mode === 'signin' ? { ...account, onUsername: username => { setAccount({ ...account, username }); setDirty(true); }, onPassword: password => { setAccount({ ...account, password }); setDirty(true); } } : undefined} apiUrl={settings.api} m3uUrl={settings.m3u} remoteEnabled={settings.remote} remoteRunning={false} remoteError={settings.remote ? '预览模式不启动远程输入服务。' : null} loggedIn={loggedIn} dirty={dirty} saving={false} savedMessage="设置保存在本地预览中" onApiChange={api => { setSettings({ ...settings, api }); setDirty(true); }} onM3uChange={m3u => { setSettings({ ...settings, m3u }); setDirty(true); }} onRemoteChange={remote => { setSettings({ ...settings, remote }); setDirty(true); }} onSave={() => { saveDemo('settings', settings); setDirty(false); setNotice('已保存本地预览设置，未连接服务器。'); }} onAccount={() => { if (loggedIn) { setLoggedIn(false); setPassword(''); } else { setLoginError(''); setModal('login'); } }} updateSection={<View style={{ paddingVertical: 25, gap: 15 }}><Text style={{ color: '#f5f6f7', fontSize: 21, fontWeight: '600' }}>应用更新</Text><Text style={{ color: '#b8bec2' }}>版本信息与更新弹窗预览</Text><View style={{ alignSelf: 'flex-start' }}><CinemaButton label="查看更新弹窗" onPress={() => setModal('update')} /></View></View>} />;
   else if (page === 'live') content = <CinemaLive {...nav} channels={mode === 'empty' ? [] : demoChannels} selectedId={channel} group={liveGroup} onGroup={setLiveGroup} onSelect={value => setChannel(value.id)} loading={mode === 'loading'} configured={mode !== 'config'} onRetry={() => { location.search = ''; }} fullscreen={fullscreen} onFullscreen={setFullscreen} player={<View style={{ flex: 1, backgroundColor: '#000' }}><BrowserVideo key={channel} url={demoVideo} direct /><Text style={{ position: 'absolute', top: 14, left: 16, color: '#fff', padding: 8, backgroundColor: '#101214cc', borderRadius: 8 }}>示例频道 · 公共测试片段</Text></View>} />;
   else {
     let items = category.type === 'record' ? records : category.type === 'movie' ? movies : [];

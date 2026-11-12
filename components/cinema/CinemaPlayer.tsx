@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowLeft, ArrowDownToDot, ArrowUpFromDot, EyeOff, Gauge, List, Pause, Play, RotateCcw, RotateCw, SkipForward, Tv } from 'lucide-react-native';
+import { ArrowLeft, ArrowDownToDot, ArrowUpFromDot, EyeOff, Gauge, List, Maximize, Minimize, Pause, Play, RotateCcw, RotateCw, SkipForward, Tv } from 'lucide-react-native';
 import { cinema as c } from '@/constants/CinemaTheme';
 import { CinemaButton, useCinemaLayout } from './CinemaUI';
 export function formatPlaybackTime(milliseconds: number) {
@@ -166,6 +166,8 @@ export interface CinemaTouchControlsProps extends Omit<CinemaPlayerProps, 'onSee
   onSeekTo: (position: number) => void;
   /** Called on every touch so the owner can restart its auto-hide timer. */
   onInteract?: () => void;
+  /** Enters full screen from portrait and leaves it from landscape. Omitted where the screen cannot be turned. */
+  onFullscreen?: () => void;
 }
 export function CinemaTouchControls(p: CinemaTouchControlsProps) {
   const act = (action: () => void) => () => { p.onInteract?.(); action(); };
@@ -191,8 +193,9 @@ export function CinemaTouchControls(p: CinemaTouchControlsProps) {
           </>}
         </View>
         <View pointerEvents="box-none" style={{ gap: 8 }}>
-          <View style={{ flexDirection: 'row' }}>
+          <View pointerEvents="box-none" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Scrubber position={p.position} duration={p.duration} onSeekTo={p.onSeekTo} onSeekBy={p.onSeekBy} onInteract={p.onInteract} />
+            {p.onFullscreen && <RoundButton label={p.immersive ? '退出全屏' : '全屏'} icon={p.immersive ? Minimize : Maximize} size={36} onPress={act(p.onFullscreen)} />}
           </View>
           {p.immersive && (
             <View pointerEvents="box-none" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
