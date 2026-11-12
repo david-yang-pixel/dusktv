@@ -1,3 +1,4 @@
+import { isSameTitle } from "@/utils/titleMatch";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // region: --- Interface Definitions ---
@@ -243,7 +244,7 @@ export class API {
     const url = `/api/search/one?q=${encodeURIComponent(query)}&resourceId=${encodeURIComponent(resourceId)}`;
     const response = await this._fetch(url, { signal });
     const { results } = await response.json();
-    return { results: results.filter((item: any) => item.title === query )};
+    return { results: results.filter((item: any) => isSameTitle(item.title, query)) };
   }
 
   async getResources(signal?: AbortSignal): Promise<ApiSite[]> {

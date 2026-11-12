@@ -15,7 +15,8 @@ export default function DetailScreen() {
   useEffect(() => { if (q) init(q, source, id); return abort; }, [q, source, id, init, abort]);
   return <CinemaDetail {...navigation} item={detail ? present(detail) : null} sources={searchResults.map(present)} loading={loading} error={error} sourcesLoading={!allSourcesLoaded} favorited={isFavorited} favoriteBusy={favoriteBusy}
     onRetry={() => { if (q) init(q, source, id); }} imageUrl={poster => api.getImageProxyUrl(poster)}
-    onPlay={episodeIndex => { if (!detail) return; abort(); router.push({ pathname: '/play', params: { title: detail.title, source: detail.source, id: String(detail.id), episodeIndex: String(episodeIndex) } }); }}
+    // 开始播放时不能中断换源搜索：资源站多的时候大部分源还没返回，一中断播放页就只剩已返回的那几个源可换
+    onPlay={episodeIndex => { if (!detail) return; router.push({ pathname: '/play', params: { title: detail.title, source: detail.source, id: String(detail.id), episodeIndex: String(episodeIndex) } }); }}
     onSource={item => { const original = searchResults.find(source => source.source === item.source && String(source.id) === item.id); if (original) setDetail(original); }}
     onFavorite={async () => { if (favoriteBusy) return; setFavoriteBusy(true); try { await toggleFavorite(); } catch { Alert.alert('收藏更新失败', '请稍后重试。'); } finally { setFavoriteBusy(false); } }}
   />;
