@@ -4,7 +4,7 @@ import PlayScreen from '@/app/play';
 import { PlayerControls, TouchPlayerControls, TouchPlayerPanel } from '@/components/PlayerControls';
 import { CinemaTouchControls, CinemaTouchGestures, CinemaTouchPanel, createTouchGestures } from '@/components/cinema/CinemaPlayer';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { ActivityIndicator, FlatList, Keyboard, Platform, Text } from 'react-native';
+import { ActivityIndicator, FlatList, Keyboard, Platform, StyleSheet, Text } from 'react-native';
 import CinemaHome from '@/components/home/CinemaHome';
 import { CinemaShell, CinemaTabBar } from '@/components/cinema/CinemaUI';
 
@@ -456,6 +456,20 @@ describe('phone home', () => {
     const empty = render({ width: 390, height: 844 }, []);
     expect(empty.tree.root.findAllByProps({ children: '下一部好片，等你发现' }).length).toBeGreaterThan(0);
     expect(empty.tree.root.findAllByProps({ testID: 'home-categories' }).length).toBeGreaterThan(0);
+  });
+
+  test('portrait: the feature is as tall as its text needs, never a fixed height it can spill out of', () => {
+    const featureStyle = (size: { width: number; height: number }) => {
+      const node = render(size).tree.root.findAll(item => item.props.testID === 'home-feature' && typeof item.type === 'string')[0];
+      const column = node.children[0] as unknown as { props: { style: object } };
+      return { box: StyleSheet.flatten(node.props.style), column: StyleSheet.flatten(column.props.style) as { width?: unknown } };
+    };
+    // A long title, a larger system font or a narrow phone all make the text taller than any fixed band.
+    const phone = featureStyle({ width: 390, height: 844 });
+    expect(phone.box.height).toBeUndefined();
+    expect(phone.column.width).toBe('100%');
+    // TV and desktop keep their fixed band.
+    expect(typeof featureStyle({ width: 1440, height: 900 }).box.height).toBe('number');
   });
 
   test('landscape phone and wide screens keep the single horizontal row', () => {
