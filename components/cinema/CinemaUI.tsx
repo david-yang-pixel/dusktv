@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import type { TextInputProps } from 'react-native';
 import { ArrowLeft, Home, Heart, Sunset, Search, Settings, Star, Tv, X } from 'lucide-react-native';
 import { cinema as c } from '@/constants/CinemaTheme';
@@ -134,6 +134,17 @@ const TABS: { page: CinemaPage; label: string; icon: typeof Search }[] = [
   { page: 'home', label: '首页', icon: Home }, { page: 'live', label: '直播', icon: Tv }, { page: 'favorites', label: '收藏', icon: Heart }, { page: 'settings', label: '设置', icon: Settings },
 ];
 const isTabPage = (page?: CinemaPage) => TABS.some(tab => tab.page === page);
+// The window shrinks when the keyboard opens, which would carry the tab bar up on top of the
+// keyboard: it would cover the field being typed in and sit right under the thumb.
+function useKeyboardOpen() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const shown = Keyboard.addListener('keyboardDidShow', () => setOpen(true));
+    const hidden = Keyboard.addListener('keyboardDidHide', () => setOpen(false));
+    return () => { shown.remove(); hidden.remove(); };
+  }, []);
+  return open;
+}
 // Phone portrait: destinations sit in a bottom bar within thumb reach, and the top keeps only search.
 export function CinemaTabBar({ active, onNavigate }: { active?: CinemaPage; onNavigate: (page: CinemaPage) => void }) {
   return <View testID="cinema-tab-bar" style={{ flexDirection: 'row', height: 62, borderTopWidth: 1, borderColor: c.elevated, backgroundColor: 'rgba(16,18,20,0.94)' }}>
@@ -175,7 +186,8 @@ export function CinemaHeader({ active, onNavigate, onBack, center }: NavigationP
 }
 export function CinemaShell({ children, active, onNavigate, onBack, center }: NavigationProps & { children: React.ReactNode; active?: CinemaPage; center?: React.ReactNode }) {
   const { compact } = useCinemaLayout();
-  return <View style={{ flex: 1, backgroundColor: c.background }}><CinemaHeader active={active} onNavigate={onNavigate} onBack={onBack} center={center} />{children}{compact && isTabPage(active) && <CinemaTabBar active={active} onNavigate={onNavigate} />}</View>;
+  const typing = useKeyboardOpen();
+  return <View style={{ flex: 1, backgroundColor: c.background }}><CinemaHeader active={active} onNavigate={onNavigate} onBack={onBack} center={center} />{children}{compact && !typing && isTabPage(active) && <CinemaTabBar active={active} onNavigate={onNavigate} />}</View>;
 }
 export const CinemaField = forwardRef<TextInput, TextInputProps & { label?: string; leadingIcon?: typeof Search }>(function CinemaField({ label, leadingIcon: Icon, style, onFocus, onBlur, ...props }, ref) {
   const [focused, setFocused] = useState(false);

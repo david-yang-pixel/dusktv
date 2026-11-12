@@ -2,9 +2,9 @@ import React from 'react';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import PlayScreen from '@/app/play';
 import { PlayerControls, TouchPlayerControls, TouchPlayerPanel } from '@/components/PlayerControls';
-import { CinemaTouchControls, CinemaTouchPanel } from '@/components/cinema/CinemaPlayer';
+import { CinemaTouchControls, CinemaTouchGestures, CinemaTouchPanel, createTouchGestures } from '@/components/cinema/CinemaPlayer';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { FlatList, Text } from 'react-native';
+import { ActivityIndicator, FlatList, Keyboard, Platform, Text } from 'react-native';
 import CinemaHome from '@/components/home/CinemaHome';
 import { CinemaShell, CinemaTabBar } from '@/components/cinema/CinemaUI';
 
@@ -30,6 +30,8 @@ jest.mock('expo-av', () => {
 jest.mock('expo-keep-awake', () => ({ useKeepAwake: jest.fn() }));
 const mockRouterBack = jest.fn();
 jest.mock('expo-screen-orientation', () => ({ lockAsync: jest.fn(async () => {}), unlockAsync: jest.fn(async () => {}), OrientationLock: { LANDSCAPE: 'LANDSCAPE', PORTRAIT_UP: 'PORTRAIT_UP' } }));
+jest.mock('expo-brightness', () => ({ getBrightnessAsync: jest.fn(async () => 0.4), setBrightnessAsync: jest.fn(async () => {}), restoreSystemBrightnessAsync: jest.fn(async () => {}) }));
+jest.mock('react-native-volume-manager', () => ({ VolumeManager: { getVolume: jest.fn(async () => ({ volume: 0.5 })), setVolume: jest.fn(async () => {}) } }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ back: mockRouterBack }), useLocalSearchParams: () => ({ episodeIndex: '0', source: 'test', id: '1', title: '测试影片' }) }));
 jest.mock('react-native-toast-message', () => ({ __esModule: true, default: { show: jest.fn() } }));
 jest.mock('@/hooks/useTVRemoteHandler', () => ({ useTVRemoteHandler: () => ({ onScreenPress: jest.fn(), resetTimer: jest.fn() }) }));
@@ -56,7 +58,7 @@ describe('play screen on touch devices', () => {
     Object.assign(layout, { deviceType: 'mobile', isPortrait: true });
     Object.assign(player, {
       isLoading: false, showControls: false, initialPosition: 0, playbackRate: 1, episode: { url: 'https://example.test/1.m3u8', title: '第 1 集' },
-      setVideoRef: jest.fn(), handlePlaybackStatusUpdate: jest.fn(), setShowControls: jest.fn(), reset: jest.fn(), loadVideo: jest.fn(),
+      setVideoRef: jest.fn(), handlePlaybackStatusUpdate: jest.fn(), setShowControls: jest.fn(), togglePlayPause: jest.fn(), reset: jest.fn(), loadVideo: jest.fn(),
     });
     await act(async () => { tree = create(<PlayScreen />); });
   });
@@ -101,7 +103,7 @@ describe('full screen on touch devices', () => {
     Object.assign(layout, { deviceType: 'mobile', isPortrait: true });
     Object.assign(player, {
       isLoading: false, showControls: true, initialPosition: 0, playbackRate: 1, episode: { url: 'https://example.test/1.m3u8', title: '第 1 集' },
-      setVideoRef: jest.fn(), handlePlaybackStatusUpdate: jest.fn(), setShowControls: jest.fn(), reset: jest.fn(), loadVideo: jest.fn(),
+      setVideoRef: jest.fn(), handlePlaybackStatusUpdate: jest.fn(), setShowControls: jest.fn(), togglePlayPause: jest.fn(), reset: jest.fn(), loadVideo: jest.fn(),
     });
     await act(async () => { tree = create(<PlayScreen />); });
   });
@@ -140,6 +142,129 @@ describe('full screen on touch devices', () => {
   });
 });
 
+describe('touch gestures on the video', () => {
+  const setup = (overrides: Partial<Parameters<typeof createTouchGestures>[0] extends () => infer O ? O : never> = {}) => {
+    const levels: ({ kind: string; value: number } | null)[] = [];
+    const options = {
+      size: () => ({ width: 400, height: 400 }), onTap: jest.fn(), onDoubleTap: jest.fn(), onLevel: (level: { kind: string; value: number } | null) => { levels.push(level); },
+      brightness: { get: jest.fn(async () => 0.5), set: jest.fn() }, volume: { get: jest.fn(async () => 0.5), set: jest.fn() }, ...overrides,
+    };
+    return { gestures: createTouchGestures(() => options as never), options, levels };
+  };
+  const tap = (gestures: ReturnType<typeof createTouchGestures>, x = 200) => { gestures.start(x); gestures.end(0, 0); };
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  test('one tap toggles the controls, but only once a second tap can no longer follow', () => {
+    const { gestures, options } = setup();
+    tap(gestures);
+    expect(options.onTap).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(400);
+    expect(options.onTap).toHaveBeenCalledTimes(1);
+    expect(options.onDoubleTap).not.toHaveBeenCalled();
+  });
+
+  test('a double tap pauses or resumes and does not also toggle the controls', () => {
+    const { gestures, options } = setup();
+    tap(gestures); jest.advanceTimersByTime(120); tap(gestures);
+    jest.advanceTimersByTime(600);
+    expect(options.onDoubleTap).toHaveBeenCalledTimes(1);
+    expect(options.onTap).not.toHaveBeenCalled();
+  });
+
+  test('sliding up on the left half raises brightness from its current level', async () => {
+    const { gestures, options, levels } = setup();
+    gestures.start(80); gestures.move(0, -20);
+    await Promise.resolve(); await Promise.resolve();
+    gestures.move(0, -120);
+    expect(options.brightness.set).toHaveBeenLastCalledWith(0.75);
+    expect(options.volume.set).not.toHaveBeenCalled();
+    expect(levels.at(-1)).toEqual({ kind: 'brightness', value: 0.75 });
+    gestures.end(0, -120); jest.advanceTimersByTime(1500);
+    expect(levels.at(-1)).toBeNull();
+    expect(options.onTap).not.toHaveBeenCalled();
+  });
+
+  test('sliding down on the right half lowers volume, and stops at silent', async () => {
+    const { gestures, options } = setup();
+    gestures.start(320); gestures.move(0, 20);
+    await Promise.resolve(); await Promise.resolve();
+    gestures.move(0, 100);
+    expect(options.volume.set).toHaveBeenLastCalledWith(0.3);
+    gestures.move(0, 500);
+    expect(options.volume.set).toHaveBeenLastCalledWith(0);
+    expect(options.brightness.set).not.toHaveBeenCalled();
+  });
+
+  test('a short picture still needs a real slide to cover the whole range', async () => {
+    const { gestures, options } = setup({ size: () => ({ width: 400, height: 200 }) });
+    gestures.start(80); gestures.move(0, -20);
+    await Promise.resolve(); await Promise.resolve();
+    gestures.move(0, -100);
+    expect(options.brightness.set).toHaveBeenLastCalledWith(0.75);
+  });
+
+  test('a sideways slide is neither a tap nor an adjustment', async () => {
+    const { gestures, options } = setup();
+    gestures.start(80); gestures.move(60, 5); await Promise.resolve(); gestures.end(60, 5);
+    jest.advanceTimersByTime(600);
+    expect(options.onTap).not.toHaveBeenCalled();
+    expect(options.brightness.set).not.toHaveBeenCalled();
+  });
+
+  test('a device without volume control just ignores the slide', async () => {
+    const { gestures, options, levels } = setup({ volume: undefined });
+    gestures.start(320); gestures.move(0, -40); await Promise.resolve(); gestures.move(0, -90); gestures.end(0, -90);
+    jest.advanceTimersByTime(600);
+    expect(levels.filter(Boolean)).toEqual([]);
+    expect(options.onTap).not.toHaveBeenCalled();
+  });
+});
+
+describe('gestures on the play screen', () => {
+  let tree: ReactTestRenderer;
+  const gestures = () => tree.root.findByType(CinemaTouchGestures).props;
+  // The volume gesture exists on Android only, and the test environment defaults to iOS.
+  const originalOS = Platform.OS;
+  afterAll(() => { Object.defineProperty(Platform, 'OS', { configurable: true, get: () => originalOS }); });
+  beforeEach(async () => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, get: () => 'android' });
+    jest.clearAllMocks();
+    Object.assign(layout, { deviceType: 'mobile', isPortrait: true });
+    Object.assign(player, {
+      isLoading: false, showControls: false, initialPosition: 0, playbackRate: 1, episode: { url: 'https://example.test/1.m3u8', title: '第 1 集' },
+      setVideoRef: jest.fn(), handlePlaybackStatusUpdate: jest.fn(), setShowControls: jest.fn(), togglePlayPause: jest.fn(), reset: jest.fn(), loadVideo: jest.fn(),
+    });
+    await act(async () => { tree = create(<PlayScreen />); });
+  });
+  afterEach(() => act(() => tree.unmount()));
+
+  test('a tap shows the controls and a double tap toggles playback', () => {
+    act(() => gestures().onTap());
+    expect(player.setShowControls).toHaveBeenCalledWith(true);
+    act(() => gestures().onDoubleTap());
+    expect(player.togglePlayPause).toHaveBeenCalledTimes(1);
+  });
+
+  test('brightness and volume are wired to the device, and brightness is restored on leaving', async () => {
+    const Brightness = jest.requireMock('expo-brightness'), { VolumeManager } = jest.requireMock('react-native-volume-manager');
+    expect(await gestures().brightness.get()).toBe(0.4);
+    gestures().brightness.set(0.8);
+    expect(Brightness.setBrightnessAsync).toHaveBeenCalledWith(0.8);
+    expect(await gestures().volume.get()).toBe(0.5);
+    gestures().volume.set(0.2);
+    expect(VolumeManager.setVolume).toHaveBeenCalledWith(0.2, { showUI: false, type: 'music' });
+    act(() => tree.unmount());
+    expect(Brightness.restoreSystemBrightnessAsync).toHaveBeenCalledTimes(1);
+    act(() => { tree = create(<PlayScreen />); });
+  });
+
+  test('a TV gets no touch gestures', () => {
+    act(() => { layout.deviceType = 'tv'; layout.isPortrait = false; tree.update(<PlayScreen />); });
+    expect(tree.root.findAllByType(CinemaTouchGestures)).toHaveLength(0);
+  });
+});
+
 describe('touch controls', () => {
   const base = { title: '测试影片', playing: false, position: 0, duration: 60000, rate: 1, hasNext: true, intro: 0, outro: 0, onBack: jest.fn(), onToggle: jest.fn(), onNext: jest.fn(), onSeekBy: jest.fn(), onSeekTo: jest.fn(), onEpisodes: jest.fn(), onSources: jest.fn(), onSpeed: jest.fn(), onIntro: jest.fn(), onOutro: jest.fn(), onHide: jest.fn() };
   const labels = (props: Partial<React.ComponentProps<typeof CinemaTouchControls>>) => {
@@ -153,6 +278,16 @@ describe('touch controls', () => {
     const landscape = labels({ immersive: true, onFullscreen: jest.fn() });
     expect(landscape.has('退出全屏')).toBe(true);
     expect(landscape.has('全屏')).toBe(false);
+  });
+
+  test('shows a spinner instead of play or pause while the video is loading', () => {
+    let tree!: ReactTestRenderer;
+    act(() => { tree = create(<CinemaTouchControls {...base} immersive={false} playing loading />); });
+    const pressable = new Set(tree.root.findAll(node => typeof node.props.onPress === 'function' && !!node.props.accessibilityLabel).map(node => node.props.accessibilityLabel));
+    expect(pressable.has('暂停')).toBe(false);
+    expect(pressable.has('播放')).toBe(false);
+    expect(tree.root.findAllByType(ActivityIndicator).length).toBeGreaterThan(0);
+    expect(labels({ playing: true }).has('暂停')).toBe(true);
   });
 
   test('hides the button where the screen cannot be turned', () => {
@@ -216,6 +351,17 @@ describe('playerStore.seekTo', () => {
     expect(setPositionAsync).toHaveBeenLastCalledWith(100000);
   });
 
+  test('play/pause can pause a video that is still buffering', async () => {
+    const pauseAsync = jest.fn(async () => {}), playAsync = jest.fn(async () => {});
+    realStore.setState({ videoRef: { current: { pauseAsync, playAsync } }, status: { isLoaded: true, isPlaying: false, isBuffering: true, shouldPlay: true } });
+    await realStore.getState().togglePlayPause();
+    expect(pauseAsync).toHaveBeenCalledTimes(1);
+    expect(playAsync).not.toHaveBeenCalled();
+    realStore.setState({ status: { isLoaded: true, isPlaying: false, isBuffering: false, shouldPlay: false } });
+    await realStore.getState().togglePlayPause();
+    expect(playAsync).toHaveBeenCalledTimes(1);
+  });
+
   test('relative seek still steps from the current position', async () => {
     await realStore.getState().seek(-20000);
     expect(setPositionAsync).toHaveBeenLastCalledWith(10000);
@@ -252,6 +398,18 @@ describe('phone navigation', () => {
       expect(tree.root.findAllByType(CinemaTabBar)).toHaveLength(0);
       expect(buttons('返回').length).toBeGreaterThan(0);
     }
+  });
+
+  test('portrait: the tab bar gets out of the way while the keyboard is open', () => {
+    const listeners: Record<string, () => void> = {};
+    const spy = jest.spyOn(Keyboard, 'addListener').mockImplementation(((event: string, callback: () => void) => { listeners[event] = callback; return { remove: jest.fn() }; }) as never);
+    const { tree } = render({ width: 390, height: 844 }, 'settings');
+    expect(tree.root.findAllByType(CinemaTabBar)).toHaveLength(1);
+    act(() => listeners.keyboardDidShow());
+    expect(tree.root.findAllByType(CinemaTabBar)).toHaveLength(0);
+    act(() => listeners.keyboardDidHide());
+    expect(tree.root.findAllByType(CinemaTabBar)).toHaveLength(1);
+    spy.mockRestore();
   });
 
   test('landscape phone and wide screens keep navigation in the top row', () => {

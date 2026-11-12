@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowLeft, ArrowDownToDot, ArrowUpFromDot, EyeOff, Gauge, List, Maximize, Minimize, Pause, Play, RotateCcw, RotateCw, SkipForward, Tv } from 'lucide-react-native';
+import { ArrowLeft, ArrowDownToDot, ArrowUpFromDot, EyeOff, Gauge, List, Maximize, Minimize, Pause, Play, RotateCcw, RotateCw, SkipForward, Sun, Tv, Volume2, VolumeX } from 'lucide-react-native';
 import { cinema as c } from '@/constants/CinemaTheme';
 import { CinemaButton, useCinemaLayout } from './CinemaUI';
 export function formatPlaybackTime(milliseconds: number) {
@@ -148,6 +148,107 @@ function Scrubber({ position, duration, onSeekTo, onSeekBy, onInteract }: {
   );
 }
 
+// ---- Gestures on the picture: tap, double tap, and vertical slides for brightness and volume ----
+
+/** Reads and sets a 0–1 level on the device, e.g. screen brightness or media volume. */
+export interface LevelControl { get: () => Promise<number>; set: (value: number) => void }
+export interface TouchGestureOptions {
+  size: () => { width: number; height: number };
+  onTap: () => void;
+  onDoubleTap: () => void;
+  /** Slide up or down on the left half. Omitted where the device cannot do it. */
+  brightness?: LevelControl;
+  /** Slide up or down on the right half. */
+  volume?: LevelControl;
+  /** The level being adjusted, for the on-screen indicator; null once the adjustment is over. */
+  onLevel: (level: { kind: 'brightness' | 'volume'; value: number } | null) => void;
+}
+const DOUBLE_TAP_MS = 280, TAP_SLOP = 12, LEVEL_LINGER_MS = 700, LEVEL_MIN_TRAVEL = 320;
+// Kept apart from the view so the rules can be tested without synthesising touch events.
+export function createTouchGestures(options: () => TouchGestureOptions) {
+  let mode: 'none' | 'ignored' | 'brightness' | 'volume' = 'none';
+  let startX = 0, originDy = 0, base: number | null = null, last = -1;
+  let single: ReturnType<typeof setTimeout> | null = null, linger: ReturnType<typeof setTimeout> | null = null;
+  const clear = (timer: ReturnType<typeof setTimeout> | null) => { if (timer) clearTimeout(timer); };
+  const finish = () => {
+    if (mode === 'brightness' || mode === 'volume') { clear(linger); linger = setTimeout(() => { linger = null; options().onLevel(null); }, LEVEL_LINGER_MS); }
+    mode = 'none'; base = null;
+  };
+  return {
+    start(x: number) { mode = 'none'; startX = x; base = null; last = -1; },
+    move(dx: number, dy: number) {
+      if (mode === 'none') {
+        // Mostly vertical and past the slop: this is an adjustment, not a tap.
+        if (Math.abs(dy) < TAP_SLOP || Math.abs(dy) < Math.abs(dx)) { if (Math.abs(dx) >= TAP_SLOP) mode = 'ignored'; return; }
+        const kind = startX < options().size().width / 2 ? 'brightness' : 'volume';
+        const control = options()[kind];
+        if (!control) { mode = 'ignored'; return; }
+        mode = kind; originDy = dy;
+        control.get().then(value => { if (mode === kind) base = Math.min(1, Math.max(0, value)); }).catch(() => { if (mode === kind) mode = 'ignored'; });
+        return;
+      }
+      if ((mode !== 'brightness' && mode !== 'volume') || base === null) return;
+      // The full height of the picture covers the whole range, but never less than LEVEL_MIN_TRAVEL:
+      // the portrait video box is short, and a small slide there should not jump to an extreme.
+      // Brightness stops just above black.
+      const floor = mode === 'brightness' ? 0.01 : 0;
+      const raw = base - (dy - originDy) / Math.max(LEVEL_MIN_TRAVEL, options().size().height);
+      const value = Math.round(Math.min(1, Math.max(floor, raw)) * 100) / 100;
+      if (value === last) return;
+      last = value; clear(linger); linger = null;
+      options()[mode]?.set(value); options().onLevel({ kind: mode, value });
+    },
+    end(dx: number, dy: number) {
+      const tapped = mode === 'none' && Math.abs(dx) < TAP_SLOP && Math.abs(dy) < TAP_SLOP;
+      finish();
+      if (!tapped) return;
+      // A lone tap waits a moment, so a second tap can turn it into a double tap instead.
+      if (single) { clear(single); single = null; options().onDoubleTap(); }
+      else single = setTimeout(() => { single = null; options().onTap(); }, DOUBLE_TAP_MS);
+    },
+    cancel() { finish(); },
+    dispose() { clear(single); clear(linger); single = linger = null; },
+  };
+}
+
+export function CinemaTouchGestures(p: Omit<TouchGestureOptions, 'size' | 'onLevel'>) {
+  const [level, setLevel] = useState<{ kind: 'brightness' | 'volume'; value: number } | null>(null);
+  const size = useRef({ width: 0, height: 0 });
+  const latest = useRef(p);
+  latest.current = p;
+  const gestures = useMemo(() => createTouchGestures(() => ({ ...latest.current, size: () => size.current, onLevel: setLevel })), []);
+  useEffect(() => gestures.dispose, [gestures]);
+  const responder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: event => gestures.start(event.nativeEvent.locationX),
+    onPanResponderMove: (_, gesture) => gestures.move(gesture.dx, gesture.dy),
+    onPanResponderRelease: (_, gesture) => gestures.end(gesture.dx, gesture.dy),
+    onPanResponderTerminate: () => gestures.cancel(),
+  }), [gestures]);
+  const Icon = level?.kind === 'brightness' ? Sun : level?.value === 0 ? VolumeX : Volume2;
+  return (
+    <View
+      {...responder.panHandlers}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel="视频画面"
+      accessibilityHint="点一下显示或隐藏控制栏，双击暂停或播放；左侧上下滑调亮度，右侧上下滑调音量"
+      onAccessibilityTap={p.onTap}
+      onLayout={event => { size.current = { width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height }; }}
+      style={StyleSheet.absoluteFill}
+    >
+      {level && (
+        <View pointerEvents="none" style={touch.level} accessibilityLiveRegion="polite">
+          <Icon size={18} color={c.text} strokeWidth={1.8} />
+          <View style={touch.levelTrack}><View style={{ width: `${level.value * 100}%`, height: '100%', borderRadius: 2, backgroundColor: c.text }} /></View>
+          <Text style={[touch.time, { minWidth: 36 }]}>{Math.round(level.value * 100)}%</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // Holds the video in the same place in the tree for every device and orientation, so
 // rotating the phone restyles the box instead of remounting (and restarting) the video.
 export function CinemaPlayerStage({ stacked, video, overlay, panel }: { stacked: boolean; video: React.ReactNode; overlay?: React.ReactNode; panel?: React.ReactNode }) {
@@ -168,16 +269,21 @@ export interface CinemaTouchControlsProps extends Omit<CinemaPlayerProps, 'onSee
   onInteract?: () => void;
   /** Enters full screen from portrait and leaves it from landscape. Omitted where the screen cannot be turned. */
   onFullscreen?: () => void;
+  /** The video is loading or buffering: the centre shows a spinner, because neither play nor pause describes it. */
+  loading?: boolean;
 }
 export function CinemaTouchControls(p: CinemaTouchControlsProps) {
   const act = (action: () => void) => () => { p.onInteract?.(); action(); };
   const edge = p.immersive ? 16 : 8;
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <Pressable accessibilityRole="button" accessibilityLabel="隐藏控制栏" onPress={p.onHide} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)' }]} />
+    // Empty areas let touches through to the gesture layer underneath, which hides the controls on a tap.
+    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)' }]} />
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, touch.center, { gap: p.immersive ? 44 : 30 }]}>
         <RoundButton label="快退 10 秒" icon={RotateCcw} onPress={act(() => p.onSeekBy(-SEEK_STEP))} />
-        <RoundButton label={p.playing ? '暂停' : '播放'} icon={p.playing ? Pause : Play} primary size={p.immersive ? 64 : 54} onPress={act(p.onToggle)} />
+        {p.loading
+          ? <View accessible accessibilityRole="progressbar" accessibilityLabel="正在加载" style={[touch.round, { width: p.immersive ? 64 : 54, height: p.immersive ? 64 : 54, borderRadius: 32, backgroundColor: scrim }]}><ActivityIndicator color={c.text} /></View>
+          : <RoundButton label={p.playing ? '暂停' : '播放'} icon={p.playing ? Pause : Play} primary size={p.immersive ? 64 : 54} onPress={act(p.onToggle)} />}
         <RoundButton label="快进 10 秒" icon={RotateCw} onPress={act(() => p.onSeekBy(SEEK_STEP))} />
       </View>
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { justifyContent: 'space-between', padding: edge }]}>
@@ -285,5 +391,7 @@ const touch = StyleSheet.create({
   track: { height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.28)' },
   thumb: { position: 'absolute', backgroundColor: c.focus },
   stackedVideo: { width: '100%', aspectRatio: 16 / 9, maxHeight: '45%', backgroundColor: '#000' },
+  level: { position: 'absolute', top: 14, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 10, height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: 'rgba(16,18,20,0.78)' },
+  levelTrack: { width: 110, height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.28)' },
   episode: { height: 44, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
 });

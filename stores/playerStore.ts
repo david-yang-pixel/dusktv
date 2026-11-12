@@ -261,7 +261,8 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
     const { status, videoRef } = get();
     if (status?.isLoaded) {
       try {
-        if (status.isPlaying) {
+        // 缓冲中 isPlaying 为 false，但用户的意图是“正在播放”，此时点一下应该能暂停
+        if (status.isPlaying || (status.shouldPlay && status.isBuffering)) {
           await videoRef?.current?.pauseAsync();
         } else {
           await videoRef?.current?.playAsync();
