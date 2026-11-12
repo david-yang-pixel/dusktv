@@ -42,6 +42,7 @@ interface PlayerState {
   playEpisode: (index: number) => void;
   togglePlayPause: () => void;
   seek: (duration: number) => void;
+  seekTo: (position: number) => void;
   handlePlaybackStatusUpdate: (newStatus: AVPlaybackStatus) => void;
   setLoading: (loading: boolean) => void;
   setShowControls: (show: boolean) => void;
@@ -273,10 +274,16 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   seek: async (duration) => {
+    const { status } = get();
+    if (!status?.isLoaded) return;
+    await get().seekTo(status.positionMillis + duration);
+  },
+
+  seekTo: async (position) => {
     const { status, videoRef } = get();
     if (!status?.isLoaded || !status.durationMillis) return;
 
-    const newPosition = Math.max(0, Math.min(status.positionMillis + duration, status.durationMillis));
+    const newPosition = Math.max(0, Math.min(position, status.durationMillis));
     try {
       await videoRef?.current?.setPositionAsync(newPosition);
     } catch (error) {

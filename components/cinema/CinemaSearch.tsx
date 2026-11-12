@@ -11,16 +11,20 @@ export interface CinemaSearchProps extends NavigationProps {
   onRemoteInput: () => void; onOpen: (item: CinemaItem) => void; imageUrl: (poster: string) => string;
 }
 export default function CinemaSearch(p: CinemaSearchProps) {
-  const { gutter, scale, compact } = useCinemaLayout();
-  return <CinemaShell active="search" onNavigate={p.onNavigate} onBack={p.onBack}>
-    <View style={{ paddingHorizontal: gutter, paddingTop: 20 * scale, paddingBottom: 20 * scale }}>
-      <CinemaHeading title="搜索" subtitle="下一部想看的，从这里找到。" />
-      <View style={{ flexDirection: compact ? 'column' : 'row', gap: 12 * scale, alignItems: compact ? 'stretch' : 'center' }}>
-        <View style={{ flex: compact ? undefined : 1 }}><CinemaField accessibilityLabel="搜索片名" leadingIcon={Search} placeholder="搜索电影、剧集…" value={p.keyword} onChangeText={p.onChange} onSubmitEditing={() => p.onSearch(p.keyword)} returnKeyType="search" autoFocus={!Platform.isTV} autoCorrect={false} /></View>
+  const { gutter, scale, compact, short } = useCinemaLayout();
+  const field = <CinemaField accessibilityLabel="搜索片名" leadingIcon={Search} placeholder="搜索电影、剧集…" value={p.keyword} onChangeText={p.onChange} onSubmitEditing={() => p.onSearch(p.keyword)} returnKeyType="search" autoFocus={!Platform.isTV} autoCorrect={false} />;
+  // Phone portrait: the field is the top bar, beside the back button. Phones also drop the
+  // "type on your phone" shortcut, which exists for TVs.
+  const phone = compact || short;
+  return <CinemaShell active="search" onNavigate={p.onNavigate} onBack={p.onBack} center={compact ? field : undefined}>
+    <View style={{ paddingHorizontal: gutter, paddingTop: compact ? 4 : short ? 8 : 20 * scale, paddingBottom: compact ? 14 : short ? 12 : 20 * scale }}>
+      {!phone && <CinemaHeading title="搜索" subtitle="下一部想看的，从这里找到。" />}
+      <View style={{ flexDirection: 'row', gap: 12 * scale, alignItems: 'center' }}>
+        {!compact && <View style={{ flex: 1 }}>{field}</View>}
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           {!!p.keyword && <CinemaButton label="清空搜索" icon={X} compact onPress={p.onClear} scale={scale} />}
           <CinemaButton label="搜索影片" primary onPress={() => p.onSearch(p.keyword)} disabled={!p.keyword.trim()} scale={scale} />
-          <CinemaButton label="手机输入" icon={QrCode} onPress={p.onRemoteInput} scale={scale} />
+          {!phone && <CinemaButton label="手机输入" icon={QrCode} onPress={p.onRemoteInput} scale={scale} />}
         </View>
       </View>
     </View>

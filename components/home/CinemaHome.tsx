@@ -6,8 +6,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Play, Search, Settings, Star, Tv } from 'lucide-react-native';
 import { cinema as c } from '@/constants/CinemaTheme';
-import { CinemaButton as TVButton, CinemaPoster as Poster, PosterImage, CinemaHeader, useCinemaLayout } from '@/components/cinema/CinemaUI';
-import type { CinemaItem } from '@/components/cinema/CinemaUI';
+import { CinemaButton as TVButton, CinemaPoster as Poster, PosterImage, CinemaHeader, CinemaTabBar, useCinemaLayout } from '@/components/cinema/CinemaUI';
+import type { CinemaItem, CinemaPage } from '@/components/cinema/CinemaUI';
 import type { Category } from '@/stores/homeStore';
 
 export type { CinemaItem } from '@/components/cinema/CinemaUI';
@@ -34,12 +34,12 @@ interface Props {
 
 export default function CinemaHome(props: Props) {
   const { width, height } = useWindowDimensions();
-  const { gutter, compact, scale } = useCinemaLayout();
+  const { gutter, compact, short, scale } = useCinemaLayout();
   // A wide but short window needs denser chrome, not larger type and posters.
   const heroHeight = compact ? 270 : Math.max(200 * scale, Math.min(height * 0.31, 280 * scale));
   const categoryHeight = (props.selectedCategory.tags?.length ? 108 : 62) * scale;
   const cardHeightBudget = height - 78 * scale - heroHeight - categoryHeight - 110 * scale - 26;
-  const cardWidth = compact ? Math.floor((width - gutter * 2) / 2.2) : Math.max(106 * scale, Math.min(210 * scale, cardHeightBudget / 1.5 + 10));
+  const cardWidth = compact ? Math.floor((width - gutter * 2) / 2.2) : short ? 118 : Math.max(106 * scale, Math.min(210 * scale, cardHeightBudget / 1.5 + 10));
 
   const [focusedKey, setFocusedKey] = useState('');
   const list = useRef<FlatList<CinemaItem>>(null);
@@ -53,6 +53,18 @@ export default function CinemaHome(props: Props) {
   const featured = props.items.find(item => `${item.source}:${item.id}` === focusedKey) || props.items[0];
   const showContent = !props.loading && !props.message && props.items.length > 0;
   const resume = featured?.progress !== undefined && featured?.episodeIndex !== undefined;
+  // Sideways on a phone the feature is one row: text on the left, actions on the right.
+  const featureActions = featured && (
+    <View style={[styles.nav, { gap: 12 * scale, marginTop: short ? 0 : 4 * scale, flexWrap: short ? 'nowrap' : 'wrap' }]}>
+      <TVButton label={resume ? '继续观看' : '查看详情'} icon={Play} primary onPress={() => props.onOpen(featured)} scale={scale} />
+      {/* Phone portrait already has the search bar right above. */}
+      {!compact && <TVButton label="搜索影片" icon={Search} onPress={() => props.onNavigate('search')} scale={scale} />}
+    </View>
+  );
+  const navigate = (page: CinemaPage) => page === 'home' ? scroll.current?.scrollTo({ y: 0, animated: false }) : props.onNavigate(page);
+  // Remote and keyboard hints mean nothing on a touch layout; only the long-press hint still applies.
+  const touchLayout = compact || short;
+  const hint = [touchLayout ? '' : Platform.OS === 'web' ? '方向键 / Tab 浏览　 Enter 打开' : '方向键浏览　 确认键打开', props.selectedCategory.type === 'record' ? '长按管理观看记录' : ''].filter(Boolean).join('　 ');
   const bodyMessage = props.message || (props.selectedCategory.type === 'record' ? '还没有观看记录，选一部影片开始吧。' : '这个分类暂时没有影片，试试其他分类或搜索。');
 
   return (
@@ -64,25 +76,23 @@ export default function CinemaHome(props: Props) {
           <LinearGradient colors={['rgba(16,18,20,0.22)', 'rgba(16,18,20,0.12)', 'rgba(16,18,20,0.72)']} locations={[0, 0.4, 1]} style={styles.fill} />
         </View>
       )}
-      <CinemaHeader active="home" onNavigate={page => page === 'home' ? scroll.current?.scrollTo({ y: 0, animated: false }) : props.onNavigate(page)} />
+      <CinemaHeader active="home" onNavigate={navigate} />
       <ScrollView ref={scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 * scale }}>
         {showContent && featured && (
-          <View testID="home-feature" style={{ height: heroHeight, paddingHorizontal: gutter, justifyContent: 'center', alignItems: 'flex-start' }}>
-            <View style={{ width: compact ? '58%' : '52%', gap: 12 * scale }}>
+          <View testID="home-feature" style={short ? { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: gutter, paddingVertical: 10 } : { height: heroHeight, paddingHorizontal: gutter, justifyContent: 'center', alignItems: 'flex-start' }}>
+            <View style={short ? { flex: 1, gap: 6 } : { width: compact ? '58%' : '52%', gap: 12 * scale }}>
               <View style={[styles.nav, { gap: 9 * scale }]}>
                 {resume ? <Play size={14 * scale} color={c.accent} /> : <Tv size={15 * scale} color={c.accent} />}
                 <Text style={{ color: c.accent, fontSize: 14 * scale, fontWeight: '500' }}>{resume ? '接着上次的故事' : props.selectedCategory.title}</Text>
               </View>
-              <Text numberOfLines={2} style={{ color: c.text, fontSize: (compact ? 28 : 40) * scale, lineHeight: (compact ? 35 : 48) * scale, fontWeight: '700', letterSpacing: -1.2 }}>{featured.title}</Text>
+              <Text numberOfLines={short ? 1 : 2} style={{ color: c.text, fontSize: (compact ? 28 : short ? 24 : 40) * scale, lineHeight: (compact ? 35 : short ? 30 : 48) * scale, fontWeight: '700', letterSpacing: -1.2 }}>{featured.title}</Text>
               <View style={[styles.nav, { gap: 16 * scale, flexWrap: 'wrap' }]}>
                 {featured.rate && <View style={[styles.nav, { gap: 5 * scale }]}><Star size={15 * scale} color={c.accent} fill={c.accent} /><Text style={{ color: c.accent, fontSize: 15 * scale, fontWeight: '600' }}>{featured.rate}</Text></View>}
                 {[featured.year, featured.sourceName, resume ? `第 ${featured.episodeIndex} 集` : props.selectedCategory.tag === 'top250' ? undefined : props.selectedCategory.tag].filter(Boolean).map((text, index) => <Text key={index} style={{ color: c.secondary, fontSize: 15 * scale }}>{text}</Text>)}
               </View>
-              <View style={[styles.nav, { gap: 12 * scale, marginTop: 4 * scale, flexWrap: 'wrap' }]}>
-                <TVButton label={resume ? '继续观看' : '查看详情'} icon={Play} primary onPress={() => props.onOpen(featured)} scale={scale} />
-                <TVButton label="搜索影片" icon={Search} onPress={() => props.onNavigate('search')} scale={scale} />
-              </View>
+              {!short && featureActions}
             </View>
+            {short && featureActions}
           </View>
         )}
         <View testID="home-categories" style={{ paddingTop: showContent ? 4 * scale : 30 * scale }}>
@@ -109,9 +119,7 @@ export default function CinemaHome(props: Props) {
             removeClippedSubviews={false}
             ListFooterComponent={props.loadingMore ? <ActivityIndicator accessibilityLabel="加载更多影片" color={c.accent} style={{ margin: 32 * scale }} /> : null}
           />
-          <Text testID="home-navigation-hint" style={{ color: c.secondary, fontSize: 12 * scale, paddingHorizontal: gutter, marginTop: 6 * scale }}>
-            {Platform.OS === 'web' ? '方向键 / Tab 浏览　 Enter 打开' : '方向键浏览　 确认键打开'}{props.selectedCategory.type === 'record' ? '　 长按管理观看记录' : ''}
-          </Text>
+          {!!hint && <Text testID="home-navigation-hint" style={{ color: c.secondary, fontSize: 12 * scale, paddingHorizontal: gutter, marginTop: 6 * scale }}>{hint}</Text>}
         </> : <View style={[styles.empty, { minHeight: height * 0.55, paddingHorizontal: gutter }]}>
           {props.loading ? <><ActivityIndicator color={c.accent} size="large" /><Text style={styles.message}>正在准备影片…</Text></> : <>
             <Tv size={42 * scale} color={c.secondary} strokeWidth={1.2} />
@@ -124,6 +132,7 @@ export default function CinemaHome(props: Props) {
           </>}
         </View>}
       </ScrollView>
+      {compact && <CinemaTabBar active="home" onNavigate={navigate} />}
     </View>
   );
 }

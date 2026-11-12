@@ -1,13 +1,50 @@
 import { Dimensions } from "react-native";
-import { DeviceUtils } from "../DeviceUtils";
+import { DeviceUtils, classifyDevice, isPhoneLandscape } from "../DeviceUtils";
 
 jest.mock("react-native", () => ({
   Dimensions: {
     get: jest.fn(),
   },
+  Platform: { OS: "android", isTV: false },
 }));
 
 const mockedDimensions = Dimensions as jest.Mocked<typeof Dimensions>;
+
+describe("classifyDevice", () => {
+  it("手机横屏时仍然是 mobile，即使宽度超过平板和 TV 断点", () => {
+    expect(classifyDevice(640, 360, { touch: true })).toBe("mobile");
+    expect(classifyDevice(844, 390, { touch: true })).toBe("mobile");
+    expect(classifyDevice(998, 448, { touch: true })).toBe("mobile");
+  });
+
+  it("手机竖屏是 mobile", () => {
+    expect(classifyDevice(390, 844, { touch: true })).toBe("mobile");
+  });
+
+  it("平板按宽度区分，不受手机规则影响", () => {
+    expect(classifyDevice(800, 1280, { touch: true })).toBe("tablet");
+    expect(classifyDevice(1280, 800, { touch: true })).toBe("tv");
+  });
+
+  it("非触摸窗口只看宽度，矮窗口不会被当成手机", () => {
+    expect(classifyDevice(960, 540, { touch: false })).toBe("tablet");
+    expect(classifyDevice(1440, 500, { touch: false })).toBe("tv");
+    expect(classifyDevice(390, 844, { touch: false })).toBe("mobile");
+  });
+
+  it("TV 硬件始终是 tv", () => {
+    expect(classifyDevice(960, 540, { tv: true, touch: false })).toBe("tv");
+  });
+});
+
+describe("isPhoneLandscape", () => {
+  it("只在触摸手机横屏时为 true", () => {
+    expect(isPhoneLandscape(844, 390, true)).toBe(true);
+    expect(isPhoneLandscape(390, 844, true)).toBe(false);
+    expect(isPhoneLandscape(1280, 800, true)).toBe(false);
+    expect(isPhoneLandscape(960, 540, false)).toBe(false);
+  });
+});
 
 describe("DeviceUtils", () => {
   beforeEach(() => {
@@ -27,6 +64,11 @@ describe("DeviceUtils", () => {
 
     it("应该在宽度 < 768 时返回 mobile", () => {
       mockedDimensions.get.mockReturnValue({ scale: 1, fontScale: 1, width: 375, height: 812 });
+      expect(DeviceUtils.getDeviceType()).toBe("mobile");
+    });
+
+    it("应该在手机横屏时仍返回 mobile", () => {
+      mockedDimensions.get.mockReturnValue({ scale: 1, fontScale: 1, width: 812, height: 375 });
       expect(DeviceUtils.getDeviceType()).toBe("mobile");
     });
   });

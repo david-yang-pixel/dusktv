@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useCallback, memo, useMemo } from "react";
-import { StyleSheet, TouchableOpacity, BackHandler, AppState, AppStateStatus, View } from "react-native";
+import React, { useEffect, useRef, useCallback, memo } from "react";
+import { StyleSheet, TouchableOpacity, BackHandler, AppState, AppStateStatus, StatusBar, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Video } from "expo-av";
 import { useKeepAwake } from "expo-keep-awake";
 import { CinemaButton, CinemaState } from '@/components/cinema/CinemaUI';
+import { CinemaPlayerStage } from '@/components/cinema/CinemaPlayer';
 import { ThemedView } from "@/components/ThemedView";
-import { PlayerControls } from "@/components/PlayerControls";
+import { PlayerControls, TouchPlayerControls, TouchPlayerPanel } from "@/components/PlayerControls";
 import { EpisodeSelectionModal } from "@/components/EpisodeSelectionModal";
 import { SourceSelectionModal } from "@/components/SourceSelectionModal";
 import { SpeedSelectionModal } from "@/components/SpeedSelectionModal";
@@ -40,35 +41,25 @@ const LoadingContainer = memo(
 
 LoadingContainer.displayName = "LoadingContainer";
 
-// 移到组件外部避免重复创建
-const createResponsiveStyles = (deviceType: string) => {
-  const isMobile = deviceType === "mobile";
-  const isTablet = deviceType === "tablet";
-
-  return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: "black",
-      // 移动端和平板端可能需要状态栏处理
-      ...(isMobile || isTablet ? { paddingTop: 0 } : {}),
-    },
-    videoContainer: {
-      ...StyleSheet.absoluteFillObject,
-      // 为触摸设备添加更多的交互区域
-      ...(isMobile || isTablet ? { zIndex: 1 } : {}),
-    },
-    videoPlayer: {
-      ...StyleSheet.absoluteFillObject,
-    },
-    loadingContainer: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(0, 0, 0, 0.8)",
-      justifyContent: "center",
-      alignItems: "center",
-      zIndex: 10,
-    },
-  });
-};
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "black",
+  },
+  videoContainer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  videoPlayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  loadingContainer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+});
 
 export default function PlayScreen() {
   const videoRef = useRef<Video>(null);
@@ -76,7 +67,10 @@ export default function PlayScreen() {
   useKeepAwake();
 
   // 响应式布局配置
-  const { deviceType } = useResponsiveLayout();
+  const { deviceType, isPortrait } = useResponsiveLayout();
+  // 触摸设备：竖屏时视频在上、选集面板在下；横屏时全屏沉浸播放
+  const touch = deviceType !== "tv";
+  const stacked = touch && isPortrait;
 
   const {
     episodeIndex: episodeIndexStr,
@@ -122,15 +116,11 @@ export default function PlayScreen() {
     introEndTime,
     playbackRate,
     handlePlaybackStatusUpdate,
-    deviceType,
     detail: detail || undefined,
   });
 
   // TV遥控器处理 - 总是调用hook，但根据设备类型决定是否使用结果
   const tvRemoteHandler = useTVRemoteHandler();
-
-  // 优化的动态样式 - 使用useMemo避免重复计算
-  const dynamicStyles = useMemo(() => createResponsiveStyles(deviceType), [deviceType]);
 
   useEffect(() => {
     const perfStart = performance.now();
@@ -178,7 +168,8 @@ export default function PlayScreen() {
 
   useEffect(() => {
     const backAction = () => {
-      if (showControls) {
+      // 触摸设备上返回键直接退出播放；TV 上先收起控制栏
+      if (showControls && !touch) {
         setShowControls(false);
         return true;
       }
@@ -189,7 +180,7 @@ export default function PlayScreen() {
     const backHandler = BackHandler.addEventListener("hardwareBackPress", backAction);
 
     return () => backHandler.remove();
-  }, [showControls, setShowControls, router]);
+  }, [showControls, setShowControls, router, touch]);
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | null = null;
@@ -211,42 +202,51 @@ export default function PlayScreen() {
   }, [isLoading]);
 
   if (!isLoading && (!detail || !currentEpisode?.url)) {
-    return <ThemedView style={dynamicStyles.container}><CinemaState title="影片暂时无法播放" message="没有取得可用的播放地址，请重试或返回选择其他片源。" action={<View style={{ flexDirection: 'row', gap: 12 }}><CinemaButton label="返回影片" onPress={() => router.back()} /><CinemaButton label="重试播放" primary disabled={!source || !id || !title} onPress={() => { if (source && id && title) loadVideo({ source, id, title, episodeIndex, position }); }} /></View>} /></ThemedView>;
+    return <ThemedView style={styles.container}><CinemaState title="影片暂时无法播放" message="没有取得可用的播放地址，请重试或返回选择其他片源。" action={<View style={{ flexDirection: 'row', gap: 12 }}><CinemaButton label="返回影片" onPress={() => router.back()} /><CinemaButton label="重试播放" primary disabled={!source || !id || !title} onPress={() => { if (source && id && title) loadVideo({ source, id, title, episodeIndex, position }); }} /></View>} /></ThemedView>;
   }
 
   if (!detail) {
     return <VideoLoadingAnimation showProgressBar />;
   }
 
+  // Video 在所有设备和方向下都处于同一棵组件树的同一位置，旋转屏幕不会重新挂载视频
+  const video = (
+    <TouchableOpacity
+      activeOpacity={1}
+      style={styles.videoContainer}
+      onPress={onScreenPress}
+      disabled={touch && showControls} // 触摸设备显示控制层时，由控制层自己处理点击
+    >
+      {/* 条件渲染Video组件：只有在有有效URL时才渲染 */}
+      {currentEpisode?.url ? (
+        <Video ref={videoRef} style={styles.videoPlayer} {...videoProps} />
+      ) : (
+        <LoadingContainer style={styles.loadingContainer} currentEpisode={currentEpisode} />
+      )}
+
+      {/* 触摸控制层自带可拖动进度条，只有 TV 需要这个快进提示 */}
+      {!touch && <SeekingBar />}
+
+      {/* 只在Video组件存在且正在加载时显示加载动画覆盖层 */}
+      {currentEpisode?.url && isLoading && (
+        <View style={styles.loadingContainer}>
+          <VideoLoadingAnimation showProgressBar />
+        </View>
+      )}
+
+      {/* <NextEpisodeOverlay visible={showNextEpisodeOverlay} onCancel={() => setShowNextEpisodeOverlay(false)} /> */}
+    </TouchableOpacity>
+  );
+  const overlay = !showControls ? null : touch ? (
+    <TouchPlayerControls immersive={!stacked} onInteract={tvRemoteHandler.resetTimer} />
+  ) : (
+    <PlayerControls showControls={showControls} setShowControls={setShowControls} />
+  );
+
   return (
-    <ThemedView focusable style={dynamicStyles.container}>
-      <TouchableOpacity
-        activeOpacity={1}
-        style={dynamicStyles.videoContainer}
-        onPress={onScreenPress}
-        disabled={deviceType !== "tv" && showControls} // 移动端和平板端在显示控制条时禁用触摸
-      >
-        {/* 条件渲染Video组件：只有在有有效URL时才渲染 */}
-        {currentEpisode?.url ? (
-          <Video ref={videoRef} style={dynamicStyles.videoPlayer} {...videoProps} />
-        ) : (
-          <LoadingContainer style={dynamicStyles.loadingContainer} currentEpisode={currentEpisode} />
-        )}
-
-
-        <SeekingBar />
-
-        {/* 只在Video组件存在且正在加载时显示加载动画覆盖层 */}
-        {currentEpisode?.url && isLoading && (
-          <View style={dynamicStyles.loadingContainer}>
-            <VideoLoadingAnimation showProgressBar />
-          </View>
-        )}
-
-        {/* <NextEpisodeOverlay visible={showNextEpisodeOverlay} onCancel={() => setShowNextEpisodeOverlay(false)} /> */}
-      </TouchableOpacity>
-
-      {showControls && deviceType === "tv" && <PlayerControls showControls={showControls} setShowControls={setShowControls} />}
+    <ThemedView focusable style={styles.container}>
+      <StatusBar hidden={touch && !stacked} />
+      <CinemaPlayerStage stacked={stacked} video={video} overlay={overlay} panel={<TouchPlayerPanel />} />
       <EpisodeSelectionModal />
       <SourceSelectionModal />
       <SpeedSelectionModal />
