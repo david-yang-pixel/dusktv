@@ -40,7 +40,11 @@ export const PlayerControls = ({ showControls, setShowControls }: { showControls
 // Phones and tablets: transport controls drawn over the picture.
 export const TouchPlayerControls = ({ immersive, onInteract, onBack, onFullscreen }: { immersive: boolean; onInteract?: () => void; onBack: () => void; onFullscreen?: () => void }) => {
   const { p, view } = usePlayerView();
-  return <CinemaTouchControls {...view} immersive={immersive} onInteract={onInteract} onFullscreen={onFullscreen} onBack={onBack} onSeekBy={p.seek} onSeekTo={p.seekTo} onHide={() => p.setShowControls(false)} />;
+  // 触控层按“用户想不想播”显示播放/暂停，加载或缓冲时显示转圈，避免卡顿时图标来回跳
+  const loaded = p.status?.isLoaded ? p.status : null;
+  const wantsPlay = !!loaded?.shouldPlay;
+  const loading = p.isLoading || !loaded || (wantsPlay && loaded.isBuffering && !loaded.isPlaying);
+  return <CinemaTouchControls {...view} playing={wantsPlay} loading={loading} immersive={immersive} onInteract={onInteract} onFullscreen={onFullscreen} onBack={onBack} onSeekBy={p.seek} onSeekTo={p.seekTo} onHide={() => p.setShowControls(false)} />;
 };
 
 // Phones and tablets in portrait: episodes and playback settings under the picture.

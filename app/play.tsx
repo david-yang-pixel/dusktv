@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Video } from "expo-av";
 import { useKeepAwake } from "expo-keep-awake";
 import { CinemaButton, CinemaState } from '@/components/cinema/CinemaUI';
-import { CinemaPlayerStage } from '@/components/cinema/CinemaPlayer';
+import { CinemaPlayerStage, CinemaTouchGestures, LevelControl } from '@/components/cinema/CinemaPlayer';
 import { ThemedView } from "@/components/ThemedView";
 import { PlayerControls, TouchPlayerControls, TouchPlayerPanel } from "@/components/PlayerControls";
 import { EpisodeSelectionModal } from "@/components/EpisodeSelectionModal";
@@ -29,6 +29,24 @@ const loadScreenOrientation = (): ScreenOrientationModule | null => {
   if (Platform.isTV) return null;
   try {
     return require("expo-screen-orientation");
+  } catch {
+    return null;
+  }
+};
+
+// 亮度和音量手势用到的两个原生模块，同样只在能用的设备上按需加载
+const loadBrightness = (): typeof import("expo-brightness") | null => {
+  if (Platform.isTV) return null;
+  try {
+    return require("expo-brightness");
+  } catch {
+    return null;
+  }
+};
+const loadVolumeManager = (): typeof import("react-native-volume-manager").VolumeManager | null => {
+  if (Platform.isTV || Platform.OS !== "android") return null;
+  try {
+    return require("react-native-volume-manager").VolumeManager;
   } catch {
     return null;
   }
@@ -100,6 +118,21 @@ export default function PlayScreen() {
   // 离开播放页时把屏幕方向交还给系统
   useEffect(() => () => { screenOrientation?.unlockAsync().catch(() => {}); }, [screenOrientation]);
 
+  // 手势：左半边上下滑调屏幕亮度（只改本应用窗口），右半边上下滑调系统媒体音量
+  const brightness = useMemo<LevelControl | undefined>(() => {
+    const module = loadBrightness();
+    return module ? { get: () => module.getBrightnessAsync(), set: value => { module.setBrightnessAsync(value).catch(() => {}); } } : undefined;
+  }, []);
+  const volume = useMemo<LevelControl | undefined>(() => {
+    const module = loadVolumeManager();
+    return module ? {
+      get: async () => (await module.getVolume()).volume,
+      set: value => { Promise.resolve(module.setVolume(value, { showUI: false, type: "music" })).catch(() => {}); },
+    } : undefined;
+  }, []);
+  // 离开播放页时恢复系统亮度
+  useEffect(() => () => { loadBrightness()?.restoreSystemBrightnessAsync().catch(() => {}); }, []);
+
   const {
     episodeIndex: episodeIndexStr,
     position: positionStr,
@@ -130,6 +163,7 @@ export default function PlayScreen() {
     setVideoRef,
     handlePlaybackStatusUpdate,
     setShowControls,
+    togglePlayPause,
     // setShowNextEpisodeOverlay,
     reset,
     loadVideo,
@@ -252,7 +286,7 @@ export default function PlayScreen() {
       activeOpacity={1}
       style={styles.videoContainer}
       onPress={onScreenPress}
-      disabled={touch && showControls} // 触摸设备显示控制层时，由控制层自己处理点击
+      disabled={touch} // 触摸设备的点击、双击和滑动都由上面的手势层处理
     >
       {/* 条件渲染Video组件：只有在有有效URL时才渲染 */}
       {currentEpisode?.url ? (
@@ -274,16 +308,21 @@ export default function PlayScreen() {
       {/* <NextEpisodeOverlay visible={showNextEpisodeOverlay} onCancel={() => setShowNextEpisodeOverlay(false)} /> */}
     </TouchableOpacity>
   );
-  const overlay = !showControls ? null : touch ? (
-    <TouchPlayerControls
-      immersive={!stacked}
-      onInteract={tvRemoteHandler.resetTimer}
-      onBack={leave}
-      onFullscreen={screenOrientation ? () => setFullscreen(stacked) : undefined}
-    />
-  ) : (
+  const overlay = touch ? (
+    <>
+      <CinemaTouchGestures onTap={onScreenPress} onDoubleTap={togglePlayPause} brightness={brightness} volume={volume} />
+      {showControls && (
+        <TouchPlayerControls
+          immersive={!stacked}
+          onInteract={tvRemoteHandler.resetTimer}
+          onBack={leave}
+          onFullscreen={screenOrientation ? () => setFullscreen(stacked) : undefined}
+        />
+      )}
+    </>
+  ) : showControls ? (
     <PlayerControls showControls={showControls} setShowControls={setShowControls} />
-  );
+  ) : null;
 
   return (
     <ThemedView focusable style={styles.container}>

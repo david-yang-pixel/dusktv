@@ -1,6 +1,6 @@
 /* eslint-env browser */
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import CinemaHome from '../components/home/CinemaHome';
 import CinemaSearch from '../components/cinema/CinemaSearch';
 import CinemaDetail from '../components/cinema/CinemaDetail';
@@ -10,7 +10,7 @@ import CinemaLive from '../components/cinema/CinemaLive';
 import ConnectedPlayer from './ConnectedPlayer';
 import BrowserVideo from './BrowserVideo';
 import CinemaChoiceDialog from '../components/cinema/CinemaChoiceDialog';
-import { CinemaPlayerStage, CinemaTouchControls, CinemaTouchPanel } from '../components/cinema/CinemaPlayer';
+import { CinemaPlayerStage, CinemaTouchControls, CinemaTouchGestures, CinemaTouchPanel } from '../components/cinema/CinemaPlayer';
 import CinemaLogin from '../components/cinema/CinemaLogin';
 import CinemaUpdate from '../components/cinema/CinemaUpdate';
 import { CinemaButton, CinemaDialog } from '../components/cinema/CinemaUI';
@@ -80,14 +80,20 @@ function DemoTouchPlayer({ movie, onBack }) {
   const toggleFullscreen = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else document.documentElement.requestFullscreen?.().then(() => window.screen.orientation?.lock?.('landscape')).catch(() => {}); };
   const options = { episodes: demoEpisodes, sources: demoSources, speed: demoRates.map(value => `${value}×`) }[dialog] || [];
   const selected = { episodes: episode, sources: source, speed: demoRates.indexOf(rate) }[dialog];
+  const toggle = () => { const el = video.current; if (!el) return; if (el.paused) el.play(); else el.pause(); };
+  // Stand-ins for the device: brightness dims the picture with a CSS filter, volume sets the element's own volume.
+  const [brightness, setBrightness] = useState(0.8), [waiting, setWaiting] = useState(false);
+  const levels = useRef({ brightness: 0.8 }); levels.current.brightness = brightness;
   const picture = <View style={StyleSheet.absoluteFill}>
-    <video ref={video} src={demoVideo} playsInline loop muted preload="auto" onLoadedMetadata={report} onTimeUpdate={report} onPlay={report} onPause={report} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
-    <Pressable accessibilityRole="button" accessibilityLabel="显示控制栏" disabled={visible} onPress={() => setVisible(true)} style={StyleSheet.absoluteFill} />
+    <video ref={video} src={demoVideo} playsInline loop muted preload="auto" onLoadedMetadata={report} onTimeUpdate={report} onPlay={report} onPause={report} onWaiting={() => setWaiting(true)} onPlaying={() => setWaiting(false)} onCanPlay={() => setWaiting(false)} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000', filter: `brightness(${0.3 + brightness * 0.7})` }} />
   </View>;
+  const gestures = <CinemaTouchGestures onTap={() => setVisible(value => !value)} onDoubleTap={toggle}
+    brightness={{ get: async () => levels.current.brightness, set: setBrightness }}
+    volume={{ get: async () => video.current?.volume ?? 1, set: value => { if (video.current) video.current.volume = value; } }} />;
   return <>
     <CinemaPlayerStage stacked={stacked} video={picture}
-      overlay={visible && <CinemaTouchControls {...shared} immersive={!stacked} playing={status.playing} position={status.position} duration={status.duration} onInteract={keepAlive}
-        onBack={onBack} onToggle={() => { const el = video.current; if (!el) return; if (el.paused) el.play(); else el.pause(); }} onSeekBy={delta => seekTo(status.position + delta)} onSeekTo={seekTo} onEpisodes={() => setDialog('episodes')} onHide={() => setVisible(false)} onFullscreen={toggleFullscreen} />}
+      overlay={<>{gestures}{visible && <CinemaTouchControls {...shared} immersive={!stacked} playing={status.playing} loading={waiting || new URLSearchParams(location.search).get('state') === 'buffering'} position={status.position} duration={status.duration} onInteract={keepAlive}
+        onBack={onBack} onToggle={toggle} onSeekBy={delta => seekTo(status.position + delta)} onSeekTo={seekTo} onEpisodes={() => setDialog('episodes')} onHide={() => setVisible(false)} onFullscreen={toggleFullscreen} />}</>}
       panel={<CinemaTouchPanel {...shared} episodes={demoEpisodes} episodeIndex={episode} onEpisode={setEpisode} />} />
     <CinemaChoiceDialog visible={!!dialog} title={{ episodes: '选择剧集', sources: '选择播放源', speed: '播放速度' }[dialog] || ''} options={options.map((label, index) => ({ value: String(index), label }))} selected={String(selected)} onClose={() => setDialog('')}
       onSelect={value => { const index = Number(value); if (dialog === 'episodes') setEpisode(index); else if (dialog === 'sources') setSource(index); else setRate(demoRates[index]); setDialog(''); }} />

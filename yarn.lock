@@ -4564,6 +4564,11 @@ expo-av@~14.0.7:
   resolved "https://registry.yarnpkg.com/expo-av/-/expo-av-14.0.7.tgz#deb967325e58b2c4d408f5d76a7ccb269442cba1"
   integrity sha512-FvKZxyy+2/qcCmp+e1GTK3s4zH8ZO1RfjpqNxh7ARlS1oH8HPtk1AyZAMo52tHz3yQ3UIqxQ2YbI9CFb4065lA==
 
+expo-brightness@~12.0.1:
+  version "12.0.1"
+  resolved "https://registry.yarnpkg.com/expo-brightness/-/expo-brightness-12.0.1.tgz#24505912a19a909ab73814574ddf145430230d53"
+  integrity sha512-Jdi8+9YeixWdg0Z2A/f3YnQ86+iMLuGyqcTi8UTipGotTHZBG8UuV1Gab/2tttOhUK2cfv4Hc2zDbkKFP6F1JQ==
+
 expo-build-properties@~0.12.3:
   version "0.12.5"
   resolved "https://registry.yarnpkg.com/expo-build-properties/-/expo-build-properties-0.12.5.tgz#4d6232389f00c846ba37ca5df2c0b5527c2d94ca"
@@ -8029,6 +8034,11 @@ react-native-toast-message@^2.3.3:
   version "2.3.3"
   resolved "https://registry.yarnpkg.com/react-native-toast-message/-/react-native-toast-message-2.3.3.tgz#e301508d386a9902ff6b4559ecc6674f8cfdf97a"
   integrity sha512-4IIUHwUPvKHu4gjD0Vj2aGQzqPATiblL1ey8tOqsxOWRPGGu52iIbL8M/mCz4uyqecvPdIcMY38AfwRuUADfQQ==
+
+react-native-volume-manager@1.10.0:
+  version "1.10.0"
+  resolved "https://registry.yarnpkg.com/react-native-volume-manager/-/react-native-volume-manager-1.10.0.tgz#4e73d284b31cf3b9b41df7c8ce9115454ad3e0af"
+  integrity sha512-MJbUyXCEz5q2GDJoOImvVZ+aC39mdxqvD6ZYVXPBuhbdhoThOIDZoaVAf+vC7H8ahGToLtNWVfcbgds8zzgHAg==
 
 react-native-web@~0.19.10:
   version "0.19.13"
