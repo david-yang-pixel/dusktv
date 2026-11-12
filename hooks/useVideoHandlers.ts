@@ -10,7 +10,6 @@ interface UseVideoHandlersProps {
   introEndTime?: number;
   playbackRate: number;
   handlePlaybackStatusUpdate: (status: any) => void;
-  deviceType: string;
   detail?: { poster?: string };
 }
 
@@ -21,7 +20,6 @@ export const useVideoHandlers = ({
   introEndTime,
   playbackRate,
   handlePlaybackStatusUpdate,
-  deviceType,
   detail,
 }: UseVideoHandlersProps) => {
   
@@ -109,7 +107,8 @@ export const useVideoHandlers = ({
     onLoad,
     onLoadStart,
     onError,
-    useNativeControls: deviceType !== 'tv',
+    // 触摸设备使用自己的触控控制层（选集、换源、倍速都在里面），不再用系统原生控制条
+    useNativeControls: false,
     shouldPlay: true,
   }), [
     currentEpisode?.url,
@@ -119,7 +118,6 @@ export const useVideoHandlers = ({
     onLoad,
     onLoadStart,
     onError,
-    deviceType,
   ]);
 
   return {

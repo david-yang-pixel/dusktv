@@ -136,5 +136,5 @@ export const useTVRemoteHandler = () => {
     }
   };
 
-  return { onScreenPress };
+  return { onScreenPress, resetTimer };
 };

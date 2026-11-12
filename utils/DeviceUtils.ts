@@ -1,18 +1,51 @@
 import { Platform, Dimensions } from "react-native";
-import { DeviceType } from "@/hooks/useResponsiveLayout";
+import type { DeviceType } from "@/hooks/useResponsiveLayout";
+
+// Android 以最短边 600dp 区分手机和平板；手机横屏时宽度会超过平板甚至 TV 断点，
+// 所以手机必须按最短边判断，不能只看宽度。
+export const PHONE_SHORT_SIDE_LIMIT = 600;
+
+/**
+ * 当前环境是否以触摸为主。原生端除 TV 外都是触摸设备；
+ * 浏览器里用指针类型判断，避免把矮的桌面窗口当成手机。
+ */
+export function isTouchDevice(): boolean {
+  if (Platform.OS !== "web") return !Platform.isTV;
+  return typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+}
+
+/**
+ * 手机横屏：触摸设备、最短边小于 600、宽大于高。
+ */
+export function isPhoneLandscape(width: number, height: number, touch: boolean = isTouchDevice()): boolean {
+  return touch && width > height && Math.min(width, height) < PHONE_SHORT_SIDE_LIMIT;
+}
+
+/**
+ * 根据窗口尺寸判断设备类型。手机在横竖屏下都返回 mobile。
+ */
+export function classifyDevice(
+  width: number,
+  height: number,
+  options: { touch?: boolean; tv?: boolean } = {}
+): DeviceType {
+  const tv = options.tv ?? !!Platform.isTV;
+  const touch = options.touch ?? isTouchDevice();
+
+  if (tv) return "tv";
+  if (touch && Math.min(width, height) < PHONE_SHORT_SIDE_LIMIT) return "mobile";
+  if (width >= 1024) return "tv";
+  if (width >= 768) return "tablet";
+  return "mobile";
+}
 
 export const DeviceUtils = {
   /**
    * 检测当前设备类型
    */
   getDeviceType(): DeviceType {
-    // if (Platform.isTV) return "tv";
-
-    const { width } = Dimensions.get("window");
-
-    if (width >= 1024) return "tv";
-    if (width >= 768) return "tablet";
-    return "mobile";
+    const { width, height } = Dimensions.get("window");
+    return classifyDevice(width, height);
   },
 
   /**

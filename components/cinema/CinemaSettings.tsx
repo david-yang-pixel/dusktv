@@ -11,16 +11,16 @@ export interface CinemaSettingsProps extends NavigationProps {
   onFieldFocus?: (field: 'api' | 'livestream') => void; onSave: () => void; onAccount: () => void;
 }
 function Section({ icon: Icon, title, description, children }: { icon: typeof Monitor; title: string; description: string; children: React.ReactNode }) {
-  const { scale, compact } = useCinemaLayout();
-  return <View style={{ flexDirection: compact ? 'column' : 'row', gap: 28 * scale, paddingVertical: 22 * scale, borderTopWidth: 1, borderColor: c.elevated }}>
-    <View style={{ width: compact ? '100%' : 230 * scale, gap: 10 }}><View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><Icon size={22 * scale} color={c.accent} /><Text style={{ color: c.text, fontSize: 20 * scale, fontWeight: '600' }}>{title}</Text></View><Text style={{ color: c.secondary, fontSize: 14 * scale, lineHeight: 23 * scale }}>{description}</Text></View>
+  const { scale, compact, short } = useCinemaLayout();
+  return <View style={{ flexDirection: compact ? 'column' : 'row', gap: short ? 20 : 28 * scale, paddingVertical: short ? 16 : 22 * scale, borderTopWidth: 1, borderColor: c.elevated }}>
+    <View style={{ width: compact ? '100%' : short ? 190 : 230 * scale, gap: 10 }}><View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><Icon size={22 * scale} color={c.accent} /><Text style={{ color: c.text, fontSize: 20 * scale, fontWeight: '600' }}>{title}</Text></View><Text style={{ color: c.secondary, fontSize: 14 * scale, lineHeight: 23 * scale }}>{description}</Text></View>
     <View style={{ flex: 1, gap: 12 }}>{children}</View>
   </View>;
 }
 export default function CinemaSettings(p: CinemaSettingsProps) {
-  const { gutter, scale } = useCinemaLayout();
+  const { gutter, scale, short } = useCinemaLayout();
   return <CinemaShell active="settings" onNavigate={p.onNavigate} onBack={p.onBack}>
-    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: gutter, paddingTop: 20 * scale, paddingBottom: 40 }}>
+    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: gutter, paddingTop: short ? 8 : 20 * scale, paddingBottom: 40 }}>
       <CinemaHeading title="设置" subtitle="连接影视库，管理观看偏好。" />
       <Section icon={Monitor} title="影视服务器" description="连接你的 MoonTV 服务，浏览影片与同步观看记录。"><CinemaField label="服务器地址" placeholder="https://your-server.example" value={p.apiUrl} onChangeText={p.onApiChange} onFocus={() => p.onFieldFocus?.('api')} autoCapitalize="none" autoCorrect={false} keyboardType="url" /><View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}><Text style={{ color: c.secondary, fontSize: 14 * scale }}>{p.loggedIn ? '账户已登录' : '尚未登录账户'}</Text><CinemaButton label={p.loggedIn ? '退出登录' : '登录账户'} icon={p.loggedIn ? LogOut : LogIn} onPress={p.onAccount} scale={scale * 0.9} /></View></Section>
       <Section icon={Radio} title="直播频道" description="添加 M3U 播放列表，在直播页切换频道。"><CinemaField label="直播源地址" placeholder="https://your-server.example/channels.m3u" value={p.m3uUrl} onChangeText={p.onM3uChange} onFocus={() => p.onFieldFocus?.('livestream')} autoCapitalize="none" autoCorrect={false} keyboardType="url" /></Section>

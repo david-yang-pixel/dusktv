@@ -3,6 +3,7 @@ import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, Style
 import type { TextInputProps } from 'react-native';
 import { ArrowLeft, Home, Heart, Sunset, Search, Settings, Star, Tv, X } from 'lucide-react-native';
 import { cinema as c } from '@/constants/CinemaTheme';
+import { isPhoneLandscape } from '@/utils/DeviceUtils';
 
 export interface CinemaItem {
   id: string;
@@ -122,15 +123,45 @@ export type CinemaPage = 'home' | 'search' | 'favorites' | 'live' | 'settings';
 export interface NavigationProps { onNavigate: (page: CinemaPage) => void; onBack?: () => void }
 export function useCinemaLayout() {
   const { width, height } = useWindowDimensions();
-  const compact = width < 768;
-  const scale = compact ? 1 : Math.max(0.8, Math.min(width / 1440, height / 850, 1.35));
-  return { width, height, compact, scale, gutter: compact ? 20 : Math.max(32, Math.min(width * 0.04, 76)) };
+  // A phone held sideways is wide but only about 400 tall. It keeps phone-sized type and
+  // touch targets and lays content out in rows, instead of shrinking the TV layout.
+  const short = isPhoneLandscape(width, height);
+  const compact = width < 768 && !short;
+  const scale = compact || short ? 1 : Math.max(0.8, Math.min(width / 1440, height / 850, 1.35));
+  return { width, height, compact, short, scale, gutter: compact ? 20 : short ? 24 : Math.max(32, Math.min(width * 0.04, 76)) };
 }
-export function CinemaHeader({ active, onNavigate, onBack }: NavigationProps & { active?: CinemaPage }) {
-  const { scale, gutter, compact } = useCinemaLayout();
-  return <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: gutter, minHeight: compact ? 70 : 78 * scale, gap: compact ? 4 : 14 * scale }}>
+const TABS: { page: CinemaPage; label: string; icon: typeof Search }[] = [
+  { page: 'home', label: '首页', icon: Home }, { page: 'live', label: '直播', icon: Tv }, { page: 'favorites', label: '收藏', icon: Heart }, { page: 'settings', label: '设置', icon: Settings },
+];
+const isTabPage = (page?: CinemaPage) => TABS.some(tab => tab.page === page);
+// Phone portrait: destinations sit in a bottom bar within thumb reach, and the top keeps only search.
+export function CinemaTabBar({ active, onNavigate }: { active?: CinemaPage; onNavigate: (page: CinemaPage) => void }) {
+  return <View testID="cinema-tab-bar" style={{ flexDirection: 'row', height: 62, borderTopWidth: 1, borderColor: c.elevated, backgroundColor: 'rgba(16,18,20,0.94)' }}>
+    {TABS.map(({ page, label, icon: Icon }) => {
+      const selected = page === active;
+      return <Pressable key={page} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected }} aria-selected={selected} onPress={() => onNavigate(page)} style={({ pressed }) => ({ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, opacity: pressed ? 0.7 : 1 })}>
+        <View style={{ width: 56, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? c.elevated : 'transparent' }}><Icon size={21} color={selected ? c.text : c.secondary} strokeWidth={selected ? 2 : 1.6} /></View>
+        <Text style={{ color: selected ? c.text : c.secondary, fontSize: 11, fontWeight: selected ? '700' : '500' }}>{label}</Text>
+      </Pressable>;
+    })}
+  </View>;
+}
+export function CinemaHeader({ active, onNavigate, onBack, center }: NavigationProps & { active?: CinemaPage; /** Phone portrait, pushed pages: sits beside the back button. */ center?: React.ReactNode }) {
+  const { scale, gutter, compact, short, width } = useCinemaLayout();
+  if (compact) {
+    // Tab pages get the search bar; pushed pages (search, detail) get a back button instead.
+    const tab = isTabPage(active);
+    if (active === 'settings') return <View style={{ height: 8 }} />;
+    return <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: gutter, minHeight: 64, gap: 6 }}>
+      {!tab && onBack && <View style={{ marginLeft: -11 }}><CinemaButton label="返回" icon={ArrowLeft} compact onPress={onBack} /></View>}
+      {tab ? <Pressable accessibilityRole="button" accessibilityLabel="搜索" onPress={() => onNavigate('search')} style={({ pressed }) => ({ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, height: 44, paddingHorizontal: 16, borderRadius: 22, borderWidth: 1, borderColor: c.elevated, backgroundColor: 'rgba(32,36,39,0.82)', opacity: pressed ? 0.75 : 1 })}>
+        <Search size={19} color={c.secondary} /><Text numberOfLines={1} style={{ color: c.secondary, fontSize: 15 }}>搜索电影、剧集…</Text>
+      </Pressable> : !!center && <View style={{ flex: 1 }}>{center}</View>}
+    </View>;
+  }
+  return <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: gutter, minHeight: compact ? 70 : short ? 56 : 78 * scale, gap: compact ? 4 : short ? 6 : 14 * scale }}>
     {onBack && <CinemaButton label="返回" icon={ArrowLeft} compact onPress={onBack} scale={scale} />}
-    {!compact && <Pressable accessibilityRole="button" accessibilityLabel="暮映 DuskTV 首页" onPress={() => onNavigate('home')} style={({ focused }) => ({ flexDirection: 'row', alignItems: 'center', gap: 9 * scale, marginRight: 22 * scale, padding: 5, borderRadius: 8, borderWidth: 2, borderColor: focused ? c.focus : 'transparent' })}>
+    {!compact && !(short && width < 760) && <Pressable accessibilityRole="button" accessibilityLabel="暮映 DuskTV 首页" onPress={() => onNavigate('home')} style={({ focused }) => ({ flexDirection: 'row', alignItems: 'center', gap: 9 * scale, marginRight: short ? 8 : 22 * scale, padding: 5, borderRadius: 8, borderWidth: 2, borderColor: focused ? c.focus : 'transparent' })}>
       <Sunset size={28 * scale} color={c.accent} strokeWidth={1.5} /><Text style={{ color: c.text, fontSize: 22 * scale, fontWeight: '700', letterSpacing: -0.7 }}>暮映<Text style={{ fontSize: 14 * scale, fontWeight: '400', color: c.secondary }}> DuskTV</Text></Text>
     </Pressable>}
     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: compact ? 0 : 4 * scale }}>
@@ -142,8 +173,9 @@ export function CinemaHeader({ active, onNavigate, onBack }: NavigationProps & {
     <CinemaButton label="设置" icon={Settings} compact selected={active === 'settings'} onPress={() => onNavigate('settings')} scale={scale} />
   </View>;
 }
-export function CinemaShell({ children, active, onNavigate, onBack }: NavigationProps & { children: React.ReactNode; active?: CinemaPage }) {
-  return <View style={{ flex: 1, backgroundColor: c.background }}><CinemaHeader active={active} onNavigate={onNavigate} onBack={onBack} />{children}</View>;
+export function CinemaShell({ children, active, onNavigate, onBack, center }: NavigationProps & { children: React.ReactNode; active?: CinemaPage; center?: React.ReactNode }) {
+  const { compact } = useCinemaLayout();
+  return <View style={{ flex: 1, backgroundColor: c.background }}><CinemaHeader active={active} onNavigate={onNavigate} onBack={onBack} center={center} />{children}{compact && isTabPage(active) && <CinemaTabBar active={active} onNavigate={onNavigate} />}</View>;
 }
 export const CinemaField = forwardRef<TextInput, TextInputProps & { label?: string; leadingIcon?: typeof Search }>(function CinemaField({ label, leadingIcon: Icon, style, onFocus, onBlur, ...props }, ref) {
   const [focused, setFocused] = useState(false);
@@ -157,9 +189,9 @@ export const CinemaField = forwardRef<TextInput, TextInputProps & { label?: stri
   </View>;
 });
 export function CinemaHeading({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
-  const { scale, compact } = useCinemaLayout();
-  return <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 22 * scale }}>
-    <View style={{ flex: 1, gap: 9 * scale }}><Text style={{ color: c.text, fontSize: (compact ? 28 : 32) * scale, fontWeight: '700', letterSpacing: -0.6 }}>{title}</Text>{!!subtitle && <Text style={{ color: c.secondary, fontSize: 15 * scale, lineHeight: 23 * scale }}>{subtitle}</Text>}</View>{action}
+  const { scale, compact, short } = useCinemaLayout();
+  return <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: short ? 12 : 22 * scale }}>
+    <View style={{ flex: 1, gap: 9 * scale }}><Text style={{ color: c.text, fontSize: (compact ? 28 : short ? 24 : 32) * scale, fontWeight: '700', letterSpacing: -0.6 }}>{title}</Text>{!!subtitle && !short && <Text style={{ color: c.secondary, fontSize: 15 * scale, lineHeight: 23 * scale }}>{subtitle}</Text>}</View>{action}
   </View>;
 }
 export function CinemaState({ title, message, loading, action }: { title: string; message?: string; loading?: boolean; action?: React.ReactNode }) {
@@ -171,13 +203,14 @@ export function CinemaState({ title, message, loading, action }: { title: string
   </View>;
 }
 export function CinemaGrid({ items, imageUrl, onOpen, header }: { items: CinemaItem[]; imageUrl: (poster: string) => string; onOpen: (item: CinemaItem) => void; header?: React.ReactElement }) {
-  const { width, gutter, scale, compact } = useCinemaLayout();
+  const { width, gutter, scale, compact, short } = useCinemaLayout();
   const [availableHeight, setAvailableHeight] = useState(0);
   const gap = 18 * scale;
   const baseColumns = compact ? 2 : width < 1000 ? 4 : 6;
   const preferredWidth = (width - gutter * 2 - gap * (baseColumns - 1)) / baseColumns;
   const heightLimitedWidth = availableHeight > 0 ? Math.max(100 * scale, (availableHeight - 76 * scale) / 1.5 + 10) : preferredWidth;
-  const columns = compact ? 2 : Math.max(baseColumns, Math.min(10, Math.ceil((width - gutter * 2 + gap) / (Math.min(preferredWidth, heightLimitedWidth) + gap))));
+  // Touch grids scroll, so a sideways phone uses a fixed count instead of fitting a full row into the viewport.
+  const columns = compact ? 2 : short ? (width >= 800 ? 6 : 5) : Math.max(baseColumns, Math.min(10, Math.ceil((width - gutter * 2 + gap) / (Math.min(preferredWidth, heightLimitedWidth) + gap))));
   const cardWidth = (width - gutter * 2 - gap * (columns - 1)) / columns;
   return <FlatList style={{ flex: 1 }} onLayout={event => setAvailableHeight(event.nativeEvent.layout.height)} key={columns} data={items} numColumns={columns} keyExtractor={item => `${item.source}:${item.id}`} ListHeaderComponent={header} showsVerticalScrollIndicator={false}
     contentContainerStyle={{ paddingHorizontal: gutter - 5, paddingBottom: 32, paddingTop: 8 }} columnWrapperStyle={{ gap, marginBottom: 22 * scale }} removeClippedSubviews={false}
