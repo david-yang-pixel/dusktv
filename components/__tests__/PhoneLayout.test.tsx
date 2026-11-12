@@ -2,7 +2,8 @@ import React from 'react';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import PlayScreen from '@/app/play';
 import { PlayerControls, TouchPlayerControls, TouchPlayerPanel } from '@/components/PlayerControls';
-import { CinemaTouchPanel } from '@/components/cinema/CinemaPlayer';
+import { CinemaTouchControls, CinemaTouchPanel } from '@/components/cinema/CinemaPlayer';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { FlatList, Text } from 'react-native';
 import CinemaHome from '@/components/home/CinemaHome';
 import { CinemaShell, CinemaTabBar } from '@/components/cinema/CinemaUI';
@@ -27,7 +28,9 @@ jest.mock('expo-av', () => {
   return { ResizeMode: { CONTAIN: 'contain' }, Video: () => { useEffect(() => { videoMounts += 1; }, []); return null; } };
 });
 jest.mock('expo-keep-awake', () => ({ useKeepAwake: jest.fn() }));
-jest.mock('expo-router', () => ({ useRouter: () => ({ back: jest.fn() }), useLocalSearchParams: () => ({ episodeIndex: '0', source: 'test', id: '1', title: '测试影片' }) }));
+const mockRouterBack = jest.fn();
+jest.mock('expo-screen-orientation', () => ({ lockAsync: jest.fn(async () => {}), unlockAsync: jest.fn(async () => {}), OrientationLock: { LANDSCAPE: 'LANDSCAPE', PORTRAIT_UP: 'PORTRAIT_UP' } }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ back: mockRouterBack }), useLocalSearchParams: () => ({ episodeIndex: '0', source: 'test', id: '1', title: '测试影片' }) }));
 jest.mock('react-native-toast-message', () => ({ __esModule: true, default: { show: jest.fn() } }));
 jest.mock('@/hooks/useTVRemoteHandler', () => ({ useTVRemoteHandler: () => ({ onScreenPress: jest.fn(), resetTimer: jest.fn() }) }));
 jest.mock('@/hooks/useVideoHandlers', () => ({ useVideoHandlers: () => ({ videoProps: {} }) }));
@@ -48,6 +51,7 @@ describe('play screen on touch devices', () => {
     tree.update(<PlayScreen />);
   });
   beforeEach(async () => {
+    jest.clearAllMocks();
     videoMounts = 0;
     Object.assign(layout, { deviceType: 'mobile', isPortrait: true });
     Object.assign(player, {
@@ -84,6 +88,77 @@ describe('play screen on touch devices', () => {
     expect(count(TouchPlayerControls)).toBe(0);
     expect(count(TouchPlayerPanel)).toBe(0);
     expect(videoMounts).toBe(1);
+  });
+});
+
+describe('full screen on touch devices', () => {
+  let tree: ReactTestRenderer;
+  const lock = ScreenOrientation.lockAsync as jest.Mock, unlock = ScreenOrientation.unlockAsync as jest.Mock;
+  const controls = () => tree.root.findByType(TouchPlayerControls).props;
+  const rotate = (isPortrait: boolean) => act(() => { layout.isPortrait = isPortrait; tree.update(<PlayScreen />); });
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    Object.assign(layout, { deviceType: 'mobile', isPortrait: true });
+    Object.assign(player, {
+      isLoading: false, showControls: true, initialPosition: 0, playbackRate: 1, episode: { url: 'https://example.test/1.m3u8', title: '第 1 集' },
+      setVideoRef: jest.fn(), handlePlaybackStatusUpdate: jest.fn(), setShowControls: jest.fn(), reset: jest.fn(), loadVideo: jest.fn(),
+    });
+    await act(async () => { tree = create(<PlayScreen />); });
+  });
+  afterEach(() => act(() => tree.unmount()));
+
+  test('the button turns the screen to landscape from portrait and back again', async () => {
+    await act(async () => controls().onFullscreen());
+    expect(lock).toHaveBeenLastCalledWith('LANDSCAPE');
+    rotate(false);
+    await act(async () => controls().onFullscreen());
+    expect(lock).toHaveBeenLastCalledWith('PORTRAIT_UP');
+  });
+
+  test('back leaves full screen first when the button entered it, then leaves the player', async () => {
+    await act(async () => controls().onFullscreen());
+    rotate(false);
+    await act(async () => controls().onBack());
+    expect(lock).toHaveBeenLastCalledWith('PORTRAIT_UP');
+    expect(mockRouterBack).not.toHaveBeenCalled();
+    rotate(true);
+    await act(async () => controls().onBack());
+    expect(mockRouterBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('back leaves the player directly when the phone was simply turned sideways', async () => {
+    rotate(false);
+    await act(async () => controls().onBack());
+    expect(lock).not.toHaveBeenCalled();
+    expect(mockRouterBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('leaving the player hands rotation back to the system', () => {
+    act(() => tree.unmount());
+    expect(unlock).toHaveBeenCalledTimes(1);
+    act(() => { tree = create(<PlayScreen />); });
+  });
+});
+
+describe('touch controls', () => {
+  const base = { title: '测试影片', playing: false, position: 0, duration: 60000, rate: 1, hasNext: true, intro: 0, outro: 0, onBack: jest.fn(), onToggle: jest.fn(), onNext: jest.fn(), onSeekBy: jest.fn(), onSeekTo: jest.fn(), onEpisodes: jest.fn(), onSources: jest.fn(), onSpeed: jest.fn(), onIntro: jest.fn(), onOutro: jest.fn(), onHide: jest.fn() };
+  const labels = (props: Partial<React.ComponentProps<typeof CinemaTouchControls>>) => {
+    let tree!: ReactTestRenderer;
+    act(() => { tree = create(<CinemaTouchControls {...base} immersive={false} {...props} />); });
+    return new Set(tree.root.findAll(node => typeof node.props.onPress === 'function' && !!node.props.accessibilityLabel).map(node => node.props.accessibilityLabel));
+  };
+
+  test('offers full screen in portrait and the way out in landscape', () => {
+    expect(labels({ onFullscreen: jest.fn() }).has('全屏')).toBe(true);
+    const landscape = labels({ immersive: true, onFullscreen: jest.fn() });
+    expect(landscape.has('退出全屏')).toBe(true);
+    expect(landscape.has('全屏')).toBe(false);
+  });
+
+  test('hides the button where the screen cannot be turned', () => {
+    const without = labels({});
+    expect(without.has('全屏')).toBe(false);
+    expect(without.has('退出全屏')).toBe(false);
   });
 });
 

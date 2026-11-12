@@ -1,3 +1,4 @@
+import { isSameTitle } from "@/utils/titleMatch";
 import { create } from "zustand";
 import { SearchResult, api } from "@/services/api";
 import { getResolutionFromM3U8 } from "@/services/m3u8";
@@ -153,7 +154,7 @@ const useDetailStore = create<DetailState>((set, get) => ({
             const fallbackEnd = performance.now();
             logger.info(`[PERF] FALLBACK search END - took ${(fallbackEnd - fallbackStart).toFixed(2)}ms, total results: ${allResults.length}`);
             
-            const filteredResults = allResults.filter(item => item.title === q);
+            const filteredResults = allResults.filter(item => isSameTitle(item.title, q));
             logger.info(`[FALLBACK] Filtered results: ${filteredResults.length} matches for "${q}"`);
             
             if (filteredResults.length > 0) {
@@ -188,7 +189,7 @@ const useDetailStore = create<DetailState>((set, get) => ({
             logger.info(`[PERF] API searchVideos (background) END - took ${(searchAllEnd - searchAllStart).toFixed(2)}ms, results: ${allResults.length}`);
             
             if (signal.aborted) return;
-            await processAndSetResults(allResults.filter(item => item.title === q), true);
+            await processAndSetResults(allResults.filter(item => isSameTitle(item.title, q)), true);
           } catch (backgroundError) {
             logger.warn(`[WARN] Background search failed, but preferred source already succeeded:`, backgroundError);
           }

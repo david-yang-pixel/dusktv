@@ -10,7 +10,7 @@ let mockBeforeRemove: (event: any) => void;
 let mockPreventRemove = false;
 const mockStack = { dispatch: jest.fn() };
 const mockSettings = {
-  apiBaseUrl: 'https://saved.example', m3uUrl: '', remoteInputEnabled: false,
+  apiBaseUrl: 'https://saved.example', m3uUrl: '', remoteInputEnabled: false, serverConfig: { StorageType: 'redis' } as { StorageType: string } | null,
   loadSettings: jest.fn(async () => {}), saveSettings: jest.fn(async () => {}),
   setApiBaseUrl: jest.fn((value: string) => { mockSettings.apiBaseUrl = value; }),
   setM3uUrl: jest.fn((value: string) => { mockSettings.m3uUrl = value; }),
@@ -23,11 +23,20 @@ jest.mock('@react-navigation/native', () => ({ UNSTABLE_usePreventRemove: (preve
 jest.mock('expo-router', () => ({ useNavigation: () => mockStack }));
 jest.mock('@/stores/settingsStore', () => ({ useSettingsStore: Object.assign(() => mockSettings, { getState: () => mockSettings }) }));
 jest.mock('@/stores/remoteControlStore', () => ({ useRemoteControlStore: () => ({ lastMessage: '', targetPage: '', clearMessage: jest.fn() }) }));
-jest.mock('@/stores/authStore', () => ({ __esModule: true, default: () => ({ isLoggedIn: false, showLoginModal: jest.fn(), logout: jest.fn() }) }));
+const mockCheckLoginStatus = jest.fn(async () => {});
+const mockLogin = jest.fn(async (_username?: string, _password?: string) => ({ ok: true }));
+const mockSaveCredentials = jest.fn(async (_credentials: { username: string; password: string }) => {});
+const mockRefreshPlayRecords = jest.fn(async () => {});
+jest.mock('@/stores/authStore', () => ({ __esModule: true, default: () => ({ isLoggedIn: false, showLoginModal: jest.fn(), logout: jest.fn(), checkLoginStatus: mockCheckLoginStatus }) }));
+jest.mock('@/stores/homeStore', () => ({ __esModule: true, default: { getState: () => ({ refreshPlayRecords: mockRefreshPlayRecords }) } }));
+jest.mock('@/services/api', () => ({ api: { login: (username?: string, password?: string) => mockLogin(username, password) } }));
+jest.mock('@/services/storage', () => ({ LoginCredentialsManager: { save: (credentials: { username: string; password: string }) => mockSaveCredentials(credentials) } }));
+jest.mock('react-native-toast-message', () => ({ __esModule: true, default: { show: jest.fn() } }));
 let tree: ReactTestRenderer;
 const props = () => tree.root.findByType(CinemaSettings).props;
 beforeEach(async () => {
-  jest.clearAllMocks(); mockSettings.apiBaseUrl = 'https://saved.example'; mockSettings.m3uUrl = ''; mockSettings.remoteInputEnabled = false;
+  jest.clearAllMocks(); mockSettings.apiBaseUrl = 'https://saved.example'; mockSettings.m3uUrl = ''; mockSettings.remoteInputEnabled = false; mockSettings.serverConfig = { StorageType: 'redis' };
+  mockLogin.mockImplementation(async () => ({ ok: true }));
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   await act(async () => { tree = create(<SettingsScreen />); });
 });
@@ -64,4 +73,64 @@ test('stack back is intercepted while a draft is dirty', () => {
   const actions = (Alert.alert as jest.Mock).mock.calls.at(-1)[2];
   act(() => actions.find((action: { text: string }) => action.text === '放弃更改').onPress());
   expect(mockStack.dispatch).toHaveBeenCalledWith(event.data.action);
+});
+
+describe('signing in from settings', () => {
+  const fill = (api: string, username: string, password: string) => act(() => { props().onApiChange(api); props().account.onUsername(username); props().account.onPassword(password); });
+
+  test('address, username and password are saved and signed in with one save', async () => {
+    fill('https://new.example', 'me', 'secret');
+    expect(mockLogin).not.toHaveBeenCalled();
+    await act(async () => props().onSave());
+    expect(mockSettings.saveSettings).toHaveBeenCalledTimes(1);
+    expect(mockLogin).toHaveBeenCalledWith('me', 'secret');
+    // The address must be saved before the login request goes out, or it reaches the old server.
+    expect(mockSettings.saveSettings.mock.invocationCallOrder[0]).toBeLessThan(mockLogin.mock.invocationCallOrder[0]);
+    expect(mockSaveCredentials).toHaveBeenCalledWith({ username: 'me', password: 'secret' });
+    expect(mockCheckLoginStatus).toHaveBeenCalledWith('https://new.example');
+    expect(mockRefreshPlayRecords).toHaveBeenCalled();
+    expect(props().dirty).toBe(false);
+    expect(props().account.password).toBe('');
+    expect(props().account.error).toBeFalsy();
+  });
+
+  test('a password-only server signs in without a username', async () => {
+    mockSettings.serverConfig = { StorageType: 'localstorage' };
+    fill('https://new.example', '', 'secret');
+    await act(async () => props().onSave());
+    expect(mockLogin).toHaveBeenCalledWith(undefined, 'secret');
+  });
+
+  test('a rejected password keeps the saved address, explains, and stays ready to retry', async () => {
+    mockLogin.mockImplementation(async () => { throw new Error('UNAUTHORIZED'); });
+    fill('https://new.example', 'me', 'wrong');
+    await act(async () => props().onSave());
+    expect(mockSettings.saveSettings).toHaveBeenCalledTimes(1);
+    expect(mockSaveCredentials).not.toHaveBeenCalled();
+    expect(props().account.error).toMatch(/用户名或密码/);
+    expect(props().account.password).toBe('wrong');
+    expect(props().dirty).toBe(true);
+  });
+
+  test('an unreachable server is reported instead of sending the password nowhere', async () => {
+    mockSettings.serverConfig = null;
+    fill('https://down.example', 'me', 'secret');
+    await act(async () => props().onSave());
+    expect(mockLogin).not.toHaveBeenCalled();
+    expect(props().account.error).toMatch(/连接不上/);
+  });
+
+  test('a username without a password asks for the password', async () => {
+    fill('https://new.example', 'me', '');
+    await act(async () => props().onSave());
+    expect(mockLogin).not.toHaveBeenCalled();
+    expect(props().account.error).toMatch(/密码/);
+  });
+
+  test('saving without credentials does not attempt to sign in', async () => {
+    act(() => props().onM3uChange('https://new.example/list.m3u'));
+    await act(async () => props().onSave());
+    expect(mockLogin).not.toHaveBeenCalled();
+    expect(props().dirty).toBe(false);
+  });
 });

@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useCallback, memo } from "react";
-import { StyleSheet, TouchableOpacity, BackHandler, AppState, AppStateStatus, StatusBar, View } from "react-native";
+import React, { useEffect, useRef, useCallback, useMemo, useState, memo } from "react";
+import { StyleSheet, TouchableOpacity, BackHandler, AppState, AppStateStatus, Platform, StatusBar, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Video } from "expo-av";
 import { useKeepAwake } from "expo-keep-awake";
@@ -22,6 +22,17 @@ import { useVideoHandlers } from "@/hooks/useVideoHandlers";
 import Logger from '@/utils/Logger';
 
 const logger = Logger.withTag('PlayScreen');
+
+// 屏幕方向模块在 Apple TV 上没有原生实现，顶层 import 会在加载时直接报错，所以只在非 TV 设备上按需加载
+type ScreenOrientationModule = typeof import("expo-screen-orientation");
+const loadScreenOrientation = (): ScreenOrientationModule | null => {
+  if (Platform.isTV) return null;
+  try {
+    return require("expo-screen-orientation");
+  } catch {
+    return null;
+  }
+};
 
 // 优化的加载动画组件
 const LoadingContainer = memo(
@@ -71,6 +82,23 @@ export default function PlayScreen() {
   // 触摸设备：竖屏时视频在上、选集面板在下；横屏时全屏沉浸播放
   const touch = deviceType !== "tv";
   const stacked = touch && isPortrait;
+
+  // 全屏按钮：把屏幕锁到横屏或竖屏。系统关闭了自动旋转时，这是进入全屏的唯一办法
+  const screenOrientation = useMemo(loadScreenOrientation, []);
+  // 只有用按钮进入的全屏才算；用户自己把手机转成横屏不算
+  const [enteredFullscreen, setEnteredFullscreen] = useState(false);
+  const setFullscreen = useCallback(async (fullscreen: boolean) => {
+    if (!screenOrientation) return;
+    try {
+      const { LANDSCAPE, PORTRAIT_UP } = screenOrientation.OrientationLock;
+      await screenOrientation.lockAsync(fullscreen ? LANDSCAPE : PORTRAIT_UP);
+      setEnteredFullscreen(fullscreen);
+    } catch (error) {
+      logger.warn("Failed to change screen orientation:", error);
+    }
+  }, [screenOrientation]);
+  // 离开播放页时把屏幕方向交还给系统
+  useEffect(() => () => { screenOrientation?.unlockAsync().catch(() => {}); }, [screenOrientation]);
 
   const {
     episodeIndex: episodeIndexStr,
@@ -166,21 +194,30 @@ export default function PlayScreen() {
     };
   }, []);
 
+  // 返回：用按钮进入的全屏先退回竖屏，否则离开播放页
+  const leave = useCallback(() => {
+    if (touch && enteredFullscreen && !stacked) {
+      setFullscreen(false);
+    } else {
+      router.back();
+    }
+  }, [touch, enteredFullscreen, stacked, setFullscreen, router]);
+
   useEffect(() => {
     const backAction = () => {
-      // 触摸设备上返回键直接退出播放；TV 上先收起控制栏
+      // TV 上先收起控制栏；触摸设备上直接走 leave
       if (showControls && !touch) {
         setShowControls(false);
         return true;
       }
-      router.back();
+      leave();
       return true;
     };
 
     const backHandler = BackHandler.addEventListener("hardwareBackPress", backAction);
 
     return () => backHandler.remove();
-  }, [showControls, setShowControls, router, touch]);
+  }, [showControls, setShowControls, leave, touch]);
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | null = null;
@@ -238,7 +275,12 @@ export default function PlayScreen() {
     </TouchableOpacity>
   );
   const overlay = !showControls ? null : touch ? (
-    <TouchPlayerControls immersive={!stacked} onInteract={tvRemoteHandler.resetTimer} />
+    <TouchPlayerControls
+      immersive={!stacked}
+      onInteract={tvRemoteHandler.resetTimer}
+      onBack={leave}
+      onFullscreen={screenOrientation ? () => setFullscreen(stacked) : undefined}
+    />
   ) : (
     <PlayerControls showControls={showControls} setShowControls={setShowControls} />
   );
