@@ -32,33 +32,53 @@ class UpdateService {
   /** --------------------------------------------------------------
    *  1️⃣ 远程版本检查（保持不变，只是把 fetch 包装成 async/await）
    * --------------------------------------------------------------- */
-  async checkVersion(): Promise<VersionInfo> {
-    const maxRetries = 3;
+  async checkVersion(options: { silent?: boolean } = {}): Promise<VersionInfo> {
+    // 启动时的静默检查只试一次、不弹提示；手动检查遇到网络问题会重试
+    const { silent = false } = options;
+    const maxRetries = silent ? 1 : 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      let definitive = false;
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10_000);
-        const response = await fetch(UPDATE_CONFIG.GITHUB_RAW_URL, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
+        let response: Response;
+        try {
+          response = await fetch(UPDATE_CONFIG.LATEST_RELEASE_URL, {
+            signal: controller.signal,
+            headers: { Accept: 'application/vnd.github+json' },
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+        if (response.status === 404) {
+          // 仓库还没有发布过正式版，重试也不会有结果
+          definitive = true;
+          throw new Error('还没有发布任何版本');
+        }
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        const remotePackage = await response.json();
-        const remoteVersion = remotePackage.version as string;
+        const release = await response.json();
+        const version = String(release.tag_name || '').replace(/^v/i, '');
+        if (!version) {
+          definitive = true;
+          throw new Error('最新版本缺少版本号');
+        }
+        const apk = (release.assets || []).find((asset: { name?: string }) => asset.name?.toLowerCase().endsWith('.apk'));
         return {
-          version: remoteVersion,
-          downloadUrl: UPDATE_CONFIG.getDownloadUrl(remoteVersion),
+          version,
+          downloadUrl: apk?.browser_download_url || UPDATE_CONFIG.getDownloadUrl(version),
         };
       } catch (e) {
         logger.warn(`checkVersion attempt ${attempt}/${maxRetries}`, e);
-        if (attempt === maxRetries) {
-          Toast.show({
-            type: 'error',
-            text1: '检查更新失败',
-            text2: '无法获取版本信息，请检查网络',
-          });
+        if (definitive || attempt === maxRetries) {
+          if (!silent) {
+            Toast.show({
+              type: 'error',
+              text1: '检查更新失败',
+              text2: definitive && e instanceof Error ? e.message : '无法获取版本信息，请检查网络',
+            });
+          }
           throw e;
         }
         // 指数退避

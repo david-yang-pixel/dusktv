@@ -1,17 +1,21 @@
 export const UPDATE_CONFIG = {
-  // 自动检查更新
-  AUTO_CHECK: false,
+  // 启动时自动检查更新
+  AUTO_CHECK: true,
 
   // 检查更新间隔（毫秒）
   CHECK_INTERVAL: 12 * 60 * 60 * 1000, // 12小时
 
-  // GitHub相关URL
-  GITHUB_RAW_URL:
-    `https://raw.githubusercontent.com/ZhouhaoJiang/dusktv/refs/heads/master/package.json?t=${Date.now()}`,
+  // 发布 APK 的仓库。更新检查读这个仓库的最新 Release（由 build-apk 工作流在合并到 main 后自动发布）
+  GITHUB_REPO: "david-yang-pixel/dusktv",
 
-  // 获取平台特定的下载URL
+  // 最新正式版（不含 pre-release 和草稿）
+  get LATEST_RELEASE_URL(): string {
+    return `https://api.github.com/repos/${this.GITHUB_REPO}/releases/latest`;
+  },
+
+  // Release 里没有列出 APK 附件时的兜底地址，与 build-apk 工作流的命名一致
   getDownloadUrl(version: string): string {
-    return `https://github.com/ZhouhaoJiang/dusktv/releases/download/v${version}/dusktv.${version}.apk`;
+    return `https://github.com/${this.GITHUB_REPO}/releases/download/v${version}/dusktv.${version}.apk`;
   },
 
   // 是否显示更新日志
