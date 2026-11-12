@@ -58,7 +58,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       // 获取跳过的版本
       const skipVersion = await AsyncStorage.getItem(STORAGE_KEYS.SKIP_VERSION);
       
-      const versionInfo = await updateService.checkVersion();
+      const versionInfo = await updateService.checkVersion({ silent });
       const isUpdateAvailable = updateService.isUpdateAvailable(versionInfo.version);
       
       // 如果有更新且不是要跳过的版本
@@ -73,7 +73,8 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         updateAvailable: isUpdateAvailable,
         lastCheckTime: Date.now(),
         skipVersion,
-        showUpdateModal: shouldShowUpdate && !silent,
+        // 启动时的自动检查发现新版本也要弹窗；静默只是指“已是最新”和网络失败时不打扰
+        showUpdateModal: shouldShowUpdate,
         isLatestVersion: isLatest,
       });
 
@@ -130,6 +131,9 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         downloading: false,
         downloadProgress: 100,
       });
+
+      // 下载完直接拉起系统安装界面，不需要再点一次“安装”
+      await get().installUpdate();
     } catch (error) {
       // console.info('下载失败:', error);
       set({ 
