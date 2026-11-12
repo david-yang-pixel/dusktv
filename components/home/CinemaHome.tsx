@@ -32,14 +32,17 @@ interface Props {
   imageUrl: (poster: string) => string;
 }
 
+// Phone portrait feed: the same two columns as search results and favorites.
+const FEED_COLUMNS = 2, FEED_GAP = 18;
+
 export default function CinemaHome(props: Props) {
   const { width, height } = useWindowDimensions();
   const { gutter, compact, short, scale } = useCinemaLayout();
   // A wide but short window needs denser chrome, not larger type and posters.
-  const heroHeight = compact ? 270 : Math.max(200 * scale, Math.min(height * 0.31, 280 * scale));
+  const heroHeight = compact ? 200 : Math.max(200 * scale, Math.min(height * 0.31, 280 * scale));
   const categoryHeight = (props.selectedCategory.tags?.length ? 108 : 62) * scale;
   const cardHeightBudget = height - 78 * scale - heroHeight - categoryHeight - 110 * scale - 26;
-  const cardWidth = compact ? Math.floor((width - gutter * 2) / 2.2) : short ? 118 : Math.max(106 * scale, Math.min(210 * scale, cardHeightBudget / 1.5 + 10));
+  const cardWidth = compact ? (width - gutter * 2 - FEED_GAP * (FEED_COLUMNS - 1)) / FEED_COLUMNS : short ? 118 : Math.max(106 * scale, Math.min(210 * scale, cardHeightBudget / 1.5 + 10));
 
   const [focusedKey, setFocusedKey] = useState('');
   const list = useRef<FlatList<CinemaItem>>(null);
@@ -61,24 +64,14 @@ export default function CinemaHome(props: Props) {
       {!compact && <TVButton label="搜索影片" icon={Search} onPress={() => props.onNavigate('search')} scale={scale} />}
     </View>
   );
-  const navigate = (page: CinemaPage) => page === 'home' ? scroll.current?.scrollTo({ y: 0, animated: false }) : props.onNavigate(page);
+  const toTop = () => { list.current?.scrollToOffset({ offset: 0, animated: false }); scroll.current?.scrollTo({ y: 0, animated: false }); };
+  const navigate = (page: CinemaPage) => page === 'home' ? toTop() : props.onNavigate(page);
   // Remote and keyboard hints mean nothing on a touch layout; only the long-press hint still applies.
   const touchLayout = compact || short;
   const hint = [touchLayout ? '' : Platform.OS === 'web' ? '方向键 / Tab 浏览　 Enter 打开' : '方向键浏览　 确认键打开', props.selectedCategory.type === 'record' ? '长按管理观看记录' : ''].filter(Boolean).join('　 ');
   const bodyMessage = props.message || (props.selectedCategory.type === 'record' ? '还没有观看记录，选一部影片开始吧。' : '这个分类暂时没有影片，试试其他分类或搜索。');
 
-  return (
-    <View style={styles.screen}>
-      {showContent && featured?.poster && (
-        <View testID="home-backdrop" pointerEvents="none" style={styles.backdrop}>
-          <PosterImage uri={props.imageUrl(featured.poster)} style={styles.backdropImage} blurRadius={8} />
-          <LinearGradient colors={['rgba(16,18,20,0.78)', 'rgba(16,18,20,0.48)', 'rgba(16,18,20,0.28)']} locations={[0, 0.48, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.fill} />
-          <LinearGradient colors={['rgba(16,18,20,0.22)', 'rgba(16,18,20,0.12)', 'rgba(16,18,20,0.72)']} locations={[0, 0.4, 1]} style={styles.fill} />
-        </View>
-      )}
-      <CinemaHeader active="home" onNavigate={navigate} />
-      <ScrollView ref={scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 * scale }}>
-        {showContent && featured && (
+  const feature = showContent && featured && (
           <View testID="home-feature" style={short ? { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: gutter, paddingVertical: 10 } : { height: heroHeight, paddingHorizontal: gutter, justifyContent: 'center', alignItems: 'flex-start' }}>
             <View style={short ? { flex: 1, gap: 6 } : { width: compact ? '58%' : '52%', gap: 12 * scale }}>
               <View style={[styles.nav, { gap: 9 * scale }]}>
@@ -94,7 +87,8 @@ export default function CinemaHome(props: Props) {
             </View>
             {short && featureActions}
           </View>
-        )}
+        );
+  const categories = (
         <View testID="home-categories" style={{ paddingTop: showContent ? 4 * scale : 30 * scale }}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: gutter - 8 * scale, gap: 6 * scale, paddingVertical: 5 * scale }}>
             {props.categories.map(category => <TVButton key={category.title} label={category.type === 'record' ? '继续观看' : category.title} selected={category.title === props.selectedCategory.title} onPress={() => props.onCategorySelect(category)} scale={scale} />)}
@@ -103,7 +97,58 @@ export default function CinemaHome(props: Props) {
             {props.selectedCategory.tags.map(tag => <TVButton key={tag} label={tag} selected={tag === props.selectedCategory.tag} onPress={() => props.onTagSelect(tag)} scale={scale * 0.87} />)}
           </ScrollView>}
         </View>
-        {showContent ? <>
+  );
+  const empty = (
+    <View style={[styles.empty, { minHeight: height * 0.55, paddingHorizontal: gutter }]}>
+          {props.loading ? <><ActivityIndicator color={c.accent} size="large" /><Text style={styles.message}>正在准备影片…</Text></> : <>
+            <Tv size={42 * scale} color={c.secondary} strokeWidth={1.2} />
+            <Text style={{ color: c.text, fontSize: 26 * scale, fontWeight: '600', marginTop: 18 * scale }}>{props.needsConfiguration ? '连接你的影视库' : props.message ? '暂时无法加载' : '下一部好片，等你发现'}</Text>
+            <Text style={styles.message}>{bodyMessage}</Text>
+            <View style={[styles.nav, { gap: 12, marginTop: 16 }]}>
+              <TVButton label={props.needsConfiguration ? '设置服务器' : props.message ? '重新加载' : '搜索影片'} icon={props.needsConfiguration ? Settings : Search} primary onPress={props.needsConfiguration ? () => props.onNavigate('settings') : props.message ? props.onRetry : () => props.onNavigate('search')} scale={scale} />
+              {props.message && !props.needsConfiguration && <TVButton label="检查设置" onPress={() => props.onNavigate('settings')} scale={scale} />}
+            </View>
+          </>}
+        </View>
+  );
+  const more = props.loadingMore ? <ActivityIndicator accessibilityLabel="加载更多影片" color={c.accent} style={{ margin: 32 * scale }} /> : null;
+
+  return (
+    <View style={styles.screen}>
+      {showContent && featured?.poster && (
+        <View testID="home-backdrop" pointerEvents="none" style={styles.backdrop}>
+          <PosterImage uri={props.imageUrl(featured.poster)} style={styles.backdropImage} blurRadius={8} />
+          <LinearGradient colors={['rgba(16,18,20,0.78)', 'rgba(16,18,20,0.48)', 'rgba(16,18,20,0.28)']} locations={[0, 0.48, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.fill} />
+          <LinearGradient colors={['rgba(16,18,20,0.22)', 'rgba(16,18,20,0.12)', 'rgba(16,18,20,0.72)']} locations={[0, 0.4, 1]} style={styles.fill} />
+        </View>
+      )}
+      <CinemaHeader active="home" onNavigate={navigate} />
+      {compact ? (
+        // Phone portrait: one vertical feed. The feature and categories scroll away with it, and
+        // reaching the end loads the next page.
+        <FlatList
+          ref={list}
+          key="feed"
+          testID="home-posters"
+          data={showContent ? props.items : []}
+          numColumns={FEED_COLUMNS}
+          keyExtractor={item => `${item.source}:${item.id}`}
+          renderItem={({ item }) => <Poster item={item} width={cardWidth} scale={scale} imageUrl={props.imageUrl} onFocus={() => {}} onOpen={() => props.onOpen(item)} onRemove={() => props.onRemoveRecord(item)} />}
+          ListHeaderComponent={<>{feature}{categories}{!!hint && showContent && <Text testID="home-navigation-hint" style={{ color: c.secondary, fontSize: 12, paddingHorizontal: gutter, marginTop: 6 }}>{hint}</Text>}<View style={{ height: 12 }} /></>}
+          ListEmptyComponent={empty}
+          ListFooterComponent={more}
+          columnWrapperStyle={{ gap: FEED_GAP, paddingHorizontal: gutter - 5, marginBottom: 20 }}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
+          showsVerticalScrollIndicator={false}
+          onEndReached={props.onLoadMore}
+          onEndReachedThreshold={0.6}
+          removeClippedSubviews={false}
+        />
+      ) : (
+        <ScrollView ref={scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 * scale }}>
+          {feature}
+          {categories}
+          {showContent ? <>
           <FlatList
             ref={list}
             testID="home-posters"
@@ -117,21 +162,12 @@ export default function CinemaHome(props: Props) {
             onEndReached={props.onLoadMore}
             onEndReachedThreshold={0.5}
             removeClippedSubviews={false}
-            ListFooterComponent={props.loadingMore ? <ActivityIndicator accessibilityLabel="加载更多影片" color={c.accent} style={{ margin: 32 * scale }} /> : null}
+            ListFooterComponent={more}
           />
           {!!hint && <Text testID="home-navigation-hint" style={{ color: c.secondary, fontSize: 12 * scale, paddingHorizontal: gutter, marginTop: 6 * scale }}>{hint}</Text>}
-        </> : <View style={[styles.empty, { minHeight: height * 0.55, paddingHorizontal: gutter }]}>
-          {props.loading ? <><ActivityIndicator color={c.accent} size="large" /><Text style={styles.message}>正在准备影片…</Text></> : <>
-            <Tv size={42 * scale} color={c.secondary} strokeWidth={1.2} />
-            <Text style={{ color: c.text, fontSize: 26 * scale, fontWeight: '600', marginTop: 18 * scale }}>{props.needsConfiguration ? '连接你的影视库' : props.message ? '暂时无法加载' : '下一部好片，等你发现'}</Text>
-            <Text style={styles.message}>{bodyMessage}</Text>
-            <View style={[styles.nav, { gap: 12, marginTop: 16 }]}>
-              <TVButton label={props.needsConfiguration ? '设置服务器' : props.message ? '重新加载' : '搜索影片'} icon={props.needsConfiguration ? Settings : Search} primary onPress={props.needsConfiguration ? () => props.onNavigate('settings') : props.message ? props.onRetry : () => props.onNavigate('search')} scale={scale} />
-              {props.message && !props.needsConfiguration && <TVButton label="检查设置" onPress={() => props.onNavigate('settings')} scale={scale} />}
-            </View>
-          </>}
-        </View>}
-      </ScrollView>
+          </> : empty}
+        </ScrollView>
+      )}
       {compact && <CinemaTabBar active="home" onNavigate={navigate} />}
     </View>
   );

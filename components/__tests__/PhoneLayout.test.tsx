@@ -3,7 +3,8 @@ import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import PlayScreen from '@/app/play';
 import { PlayerControls, TouchPlayerControls, TouchPlayerPanel } from '@/components/PlayerControls';
 import { CinemaTouchPanel } from '@/components/cinema/CinemaPlayer';
-import { Text } from 'react-native';
+import { FlatList, Text } from 'react-native';
+import CinemaHome from '@/components/home/CinemaHome';
 import { CinemaShell, CinemaTabBar } from '@/components/cinema/CinemaUI';
 
 // Layout and player state are driven by hand so each test can rotate the phone or show the controls.
@@ -183,6 +184,52 @@ describe('phone navigation', () => {
       const { tree, buttons } = render(size, 'home');
       expect(tree.root.findAllByType(CinemaTabBar)).toHaveLength(0);
       for (const label of ['首页', '直播', '收藏', '搜索', '设置']) expect(buttons(label).length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('phone home', () => {
+  const movies = Array.from({ length: 8 }, (_, index) => ({ id: String(index), source: 'test', title: `影片 ${index + 1}`, poster: '' }));
+  const category = { title: '电影', type: 'movie' as const };
+  const render = (size: { width: number; height: number }, items = movies) => {
+    Object.assign(windowSize, size);
+    const onLoadMore = jest.fn(), onOpen = jest.fn();
+    let tree!: ReactTestRenderer;
+    act(() => {
+      tree = create(<CinemaHome categories={[category]} selectedCategory={category} items={items} loading={false} loadingMore={false} isLoggedIn
+        onCategorySelect={jest.fn()} onTagSelect={jest.fn()} onOpen={onOpen} onRemoveRecord={jest.fn()} onLoadMore={onLoadMore} onRetry={jest.fn()} onNavigate={jest.fn()} onLogout={jest.fn()} imageUrl={url => url} />);
+    });
+    const posters = () => tree.root.findAllByType(FlatList).find(list => list.props.testID === 'home-posters');
+    return { tree, posters, onLoadMore, onOpen };
+  };
+  afterEach(() => { Object.assign(windowSize, { width: 390, height: 844 }); });
+
+  test('portrait: posters are a vertical two-column feed that loads more at the end', () => {
+    const { tree, posters, onLoadMore, onOpen } = render({ width: 390, height: 844 });
+    const list = posters()!;
+    expect(list.props.horizontal).toBeFalsy();
+    expect(list.props.numColumns).toBe(2);
+    expect(list.props.data).toHaveLength(8);
+    act(() => list.props.onEndReached());
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+    act(() => tree.root.findAll(node => node.props.accessibilityLabel === '影片 3' && typeof node.props.onPress === 'function')[0].props.onPress());
+    expect(onOpen).toHaveBeenCalledWith(movies[2]);
+  });
+
+  test('portrait: the feature and categories scroll with the feed, and an empty category says so', () => {
+    const filled = render({ width: 390, height: 844 });
+    expect(filled.posters()!.findAllByProps({ testID: 'home-feature' }).length).toBeGreaterThan(0);
+    expect(filled.posters()!.findAllByProps({ testID: 'home-categories' }).length).toBeGreaterThan(0);
+    const empty = render({ width: 390, height: 844 }, []);
+    expect(empty.tree.root.findAllByProps({ children: '下一部好片，等你发现' }).length).toBeGreaterThan(0);
+    expect(empty.tree.root.findAllByProps({ testID: 'home-categories' }).length).toBeGreaterThan(0);
+  });
+
+  test('landscape phone and wide screens keep the single horizontal row', () => {
+    for (const size of [{ width: 844, height: 390 }, { width: 1440, height: 900 }]) {
+      const list = render(size).posters()!;
+      expect(list.props.horizontal).toBe(true);
+      expect(list.props.numColumns ?? 1).toBe(1);
     }
   });
 });
