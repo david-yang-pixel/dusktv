@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useCallback, useMemo, useState, memo } from "react";
-import { StyleSheet, TouchableOpacity, BackHandler, AppState, AppStateStatus, Platform, StatusBar, View } from "react-native";
+import { StyleSheet, TouchableOpacity, BackHandler, AppState, AppStateStatus, StatusBar, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Video } from "expo-av";
 import { useKeepAwake } from "expo-keep-awake";
 import { CinemaButton, CinemaState } from '@/components/cinema/CinemaUI';
-import { CinemaPlayerStage, CinemaTouchGestures, LevelControl } from '@/components/cinema/CinemaPlayer';
+import { CinemaPlayerStage, CinemaTouchGestures, SeekControl } from '@/components/cinema/CinemaPlayer';
 import { ThemedView } from "@/components/ThemedView";
 import { PlayerControls, TouchPlayerControls, TouchPlayerPanel } from "@/components/PlayerControls";
 import { EpisodeSelectionModal } from "@/components/EpisodeSelectionModal";
@@ -19,38 +19,10 @@ import Toast from "react-native-toast-message";
 import usePlayerStore, { selectCurrentEpisode } from "@/stores/playerStore";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { useVideoHandlers } from "@/hooks/useVideoHandlers";
+import { loadScreenOrientation, useLevelControls } from "@/hooks/useTouchPlayerDevice";
 import Logger from '@/utils/Logger';
 
 const logger = Logger.withTag('PlayScreen');
-
-// 屏幕方向模块在 Apple TV 上没有原生实现，顶层 import 会在加载时直接报错，所以只在非 TV 设备上按需加载
-type ScreenOrientationModule = typeof import("expo-screen-orientation");
-const loadScreenOrientation = (): ScreenOrientationModule | null => {
-  if (Platform.isTV) return null;
-  try {
-    return require("expo-screen-orientation");
-  } catch {
-    return null;
-  }
-};
-
-// 亮度和音量手势用到的两个原生模块，同样只在能用的设备上按需加载
-const loadBrightness = (): typeof import("expo-brightness") | null => {
-  if (Platform.isTV) return null;
-  try {
-    return require("expo-brightness");
-  } catch {
-    return null;
-  }
-};
-const loadVolumeManager = (): typeof import("react-native-volume-manager").VolumeManager | null => {
-  if (Platform.isTV || Platform.OS !== "android") return null;
-  try {
-    return require("react-native-volume-manager").VolumeManager;
-  } catch {
-    return null;
-  }
-};
 
 // 优化的加载动画组件
 const LoadingContainer = memo(
@@ -118,20 +90,8 @@ export default function PlayScreen() {
   // 离开播放页时把屏幕方向交还给系统
   useEffect(() => () => { screenOrientation?.unlockAsync().catch(() => {}); }, [screenOrientation]);
 
-  // 手势：左半边上下滑调屏幕亮度（只改本应用窗口），右半边上下滑调系统媒体音量
-  const brightness = useMemo<LevelControl | undefined>(() => {
-    const module = loadBrightness();
-    return module ? { get: () => module.getBrightnessAsync(), set: value => { module.setBrightnessAsync(value).catch(() => {}); } } : undefined;
-  }, []);
-  const volume = useMemo<LevelControl | undefined>(() => {
-    const module = loadVolumeManager();
-    return module ? {
-      get: async () => (await module.getVolume()).volume,
-      set: value => { Promise.resolve(module.setVolume(value, { showUI: false, type: "music" })).catch(() => {}); },
-    } : undefined;
-  }, []);
-  // 离开播放页时恢复系统亮度
-  useEffect(() => () => { loadBrightness()?.restoreSystemBrightnessAsync().catch(() => {}); }, []);
+  // 手势：左半边上下滑调屏幕亮度（只改本应用窗口），右半边上下滑调系统媒体音量；离开播放页时恢复系统亮度
+  const { brightness, volume } = useLevelControls();
 
   const {
     episodeIndex: episodeIndexStr,
@@ -167,6 +127,8 @@ export default function PlayScreen() {
     // setShowNextEpisodeOverlay,
     reset,
     loadVideo,
+    status,
+    seekTo,
   } = usePlayerStore();
   const currentEpisode = usePlayerStore(selectCurrentEpisode);
 
@@ -180,6 +142,11 @@ export default function PlayScreen() {
     handlePlaybackStatusUpdate,
     detail: detail || undefined,
   });
+
+  // 手势：在画面上左右滑动快进快退。播放位置随时在变，放在 ref 里，手势开始时读一次
+  const timeline = useRef({ position: 0, duration: 0 });
+  timeline.current = status?.isLoaded ? { position: status.positionMillis, duration: status.durationMillis || 0 } : { position: 0, duration: 0 };
+  const seek = useMemo<SeekControl>(() => ({ get: () => timeline.current, to: position => { seekTo(position); } }), [seekTo]);
 
   // TV遥控器处理 - 总是调用hook，但根据设备类型决定是否使用结果
   const tvRemoteHandler = useTVRemoteHandler();
@@ -310,7 +277,7 @@ export default function PlayScreen() {
   );
   const overlay = touch ? (
     <>
-      <CinemaTouchGestures onTap={onScreenPress} onDoubleTap={togglePlayPause} brightness={brightness} volume={volume} />
+      <CinemaTouchGestures onTap={onScreenPress} onDoubleTap={togglePlayPause} brightness={brightness} volume={volume} seek={seek} />
       {showControls && (
         <TouchPlayerControls
           immersive={!stacked}

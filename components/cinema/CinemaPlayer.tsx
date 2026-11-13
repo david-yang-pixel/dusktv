@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowLeft, ArrowDownToDot, ArrowUpFromDot, EyeOff, Gauge, List, Maximize, Minimize, Pause, Play, RotateCcw, RotateCw, SkipForward, Sun, Tv, Volume2, VolumeX } from 'lucide-react-native';
+import { ArrowLeft, ArrowDownToDot, ArrowUpFromDot, EyeOff, FastForward, Gauge, List, Maximize, Minimize, Pause, Play, Rewind, RotateCcw, RotateCw, SkipForward, Sun, Tv, Volume2, VolumeX } from 'lucide-react-native';
 import { cinema as c } from '@/constants/CinemaTheme';
 import { CinemaButton, useCinemaLayout } from './CinemaUI';
 export function formatPlaybackTime(milliseconds: number) {
@@ -148,10 +148,13 @@ function Scrubber({ position, duration, onSeekTo, onSeekBy, onInteract }: {
   );
 }
 
-// ---- Gestures on the picture: tap, double tap, and vertical slides for brightness and volume ----
+// ---- Gestures on the picture: tap, double tap, vertical slides for brightness and volume, sideways slides to seek ----
 
 /** Reads and sets a 0–1 level on the device, e.g. screen brightness or media volume. */
 export interface LevelControl { get: () => Promise<number>; set: (value: number) => void }
+/** Where the video is, in milliseconds, and a way to move it. */
+export interface SeekControl { get: () => { position: number; duration: number }; to: (position: number) => void }
+export interface SeekPreview { position: number; duration: number; delta: number }
 export interface TouchGestureOptions {
   size: () => { width: number; height: number };
   onTap: () => void;
@@ -162,29 +165,52 @@ export interface TouchGestureOptions {
   volume?: LevelControl;
   /** The level being adjusted, for the on-screen indicator; null once the adjustment is over. */
   onLevel: (level: { kind: 'brightness' | 'volume'; value: number } | null) => void;
+  /** Slide sideways to move through the video. Omitted where there is no timeline, e.g. a live stream. */
+  seek?: SeekControl;
+  /** Where a sideways slide would land, for the on-screen indicator; null once the finger lifts. */
+  onSeeking?: (preview: SeekPreview | null) => void;
 }
-const DOUBLE_TAP_MS = 280, TAP_SLOP = 12, LEVEL_LINGER_MS = 700, LEVEL_MIN_TRAVEL = 320;
+// Sliding across the whole picture moves two minutes: long enough to skip a scene, short enough to aim.
+const DOUBLE_TAP_MS = 280, TAP_SLOP = 12, LEVEL_LINGER_MS = 700, LEVEL_MIN_TRAVEL = 320, SEEK_SPAN = 120000;
 // Kept apart from the view so the rules can be tested without synthesising touch events.
 export function createTouchGestures(options: () => TouchGestureOptions) {
-  let mode: 'none' | 'ignored' | 'brightness' | 'volume' = 'none';
+  let mode: 'none' | 'ignored' | 'brightness' | 'volume' | 'seek' = 'none';
   let startX = 0, originDy = 0, base: number | null = null, last = -1;
+  let seeking = { originDx: 0, from: 0, duration: 0, target: 0 };
   let single: ReturnType<typeof setTimeout> | null = null, linger: ReturnType<typeof setTimeout> | null = null;
   const clear = (timer: ReturnType<typeof setTimeout> | null) => { if (timer) clearTimeout(timer); };
   const finish = () => {
     if (mode === 'brightness' || mode === 'volume') { clear(linger); linger = setTimeout(() => { linger = null; options().onLevel(null); }, LEVEL_LINGER_MS); }
+    if (mode === 'seek') options().onSeeking?.(null);
     mode = 'none'; base = null;
   };
   return {
     start(x: number) { mode = 'none'; startX = x; base = null; last = -1; },
     move(dx: number, dy: number) {
       if (mode === 'none') {
+        // Mostly sideways and past the slop: a seek, where there is a loaded video to seek in.
+        if (Math.abs(dy) < TAP_SLOP || Math.abs(dy) < Math.abs(dx)) {
+          if (Math.abs(dx) < TAP_SLOP) return;
+          const timeline = options().seek?.get();
+          if (!timeline || !(timeline.duration > 0) || options().size().width <= 0) { mode = 'ignored'; return; }
+          mode = 'seek'; seeking = { originDx: dx, from: timeline.position, duration: timeline.duration, target: timeline.position };
+          return;
+        }
         // Mostly vertical and past the slop: this is an adjustment, not a tap.
-        if (Math.abs(dy) < TAP_SLOP || Math.abs(dy) < Math.abs(dx)) { if (Math.abs(dx) >= TAP_SLOP) mode = 'ignored'; return; }
         const kind = startX < options().size().width / 2 ? 'brightness' : 'volume';
         const control = options()[kind];
         if (!control) { mode = 'ignored'; return; }
         mode = kind; originDy = dy;
         control.get().then(value => { if (mode === kind) base = Math.min(1, Math.max(0, value)); }).catch(() => { if (mode === kind) mode = 'ignored'; });
+        return;
+      }
+      if (mode === 'seek') {
+        // The video itself is only asked to move once, on release; until then this is a preview.
+        const raw = seeking.from + ((dx - seeking.originDx) / options().size().width) * SEEK_SPAN;
+        const target = Math.round(Math.min(seeking.duration, Math.max(0, raw)));
+        if (target === seeking.target) return;
+        seeking.target = target;
+        options().onSeeking?.({ position: target, duration: seeking.duration, delta: target - seeking.from });
         return;
       }
       if ((mode !== 'brightness' && mode !== 'volume') || base === null) return;
@@ -200,6 +226,7 @@ export function createTouchGestures(options: () => TouchGestureOptions) {
     },
     end(dx: number, dy: number) {
       const tapped = mode === 'none' && Math.abs(dx) < TAP_SLOP && Math.abs(dy) < TAP_SLOP;
+      if (mode === 'seek' && seeking.target !== seeking.from) options().seek?.to(seeking.target);
       finish();
       if (!tapped) return;
       // A lone tap waits a moment, so a second tap can turn it into a double tap instead.
@@ -211,12 +238,17 @@ export function createTouchGestures(options: () => TouchGestureOptions) {
   };
 }
 
-export function CinemaTouchGestures(p: Omit<TouchGestureOptions, 'size' | 'onLevel'>) {
+const signedSeconds = (milliseconds: number) => `${milliseconds < 0 ? '−' : '+'}${Math.round(Math.abs(milliseconds) / 1000)} 秒`;
+export function CinemaTouchGestures(p: Omit<TouchGestureOptions, 'size' | 'onLevel' | 'onSeeking'> & {
+  /** Replaces the spoken hint where taps mean something else, e.g. on a live stream. */
+  hint?: string;
+}) {
   const [level, setLevel] = useState<{ kind: 'brightness' | 'volume'; value: number } | null>(null);
+  const [seeking, setSeeking] = useState<SeekPreview | null>(null);
   const size = useRef({ width: 0, height: 0 });
   const latest = useRef(p);
   latest.current = p;
-  const gestures = useMemo(() => createTouchGestures(() => ({ ...latest.current, size: () => size.current, onLevel: setLevel })), []);
+  const gestures = useMemo(() => createTouchGestures(() => ({ ...latest.current, size: () => size.current, onLevel: setLevel, onSeeking: setSeeking })), []);
   useEffect(() => gestures.dispose, [gestures]);
   const responder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -227,18 +259,25 @@ export function CinemaTouchGestures(p: Omit<TouchGestureOptions, 'size' | 'onLev
     onPanResponderTerminate: () => gestures.cancel(),
   }), [gestures]);
   const Icon = level?.kind === 'brightness' ? Sun : level?.value === 0 ? VolumeX : Volume2;
+  const SeekIcon = seeking && seeking.delta < 0 ? Rewind : FastForward;
   return (
     <View
       {...responder.panHandlers}
       accessible
       accessibilityRole="button"
       accessibilityLabel="视频画面"
-      accessibilityHint="点一下显示或隐藏控制栏，双击暂停或播放；左侧上下滑调亮度，右侧上下滑调音量"
+      accessibilityHint={p.hint ?? `点一下显示或隐藏控制栏，双击暂停或播放；左侧上下滑调亮度，右侧上下滑调音量${p.seek ? '；左右滑动快进或快退' : ''}`}
       onAccessibilityTap={p.onTap}
       onLayout={event => { size.current = { width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height }; }}
       style={StyleSheet.absoluteFill}
     >
-      {level && (
+      {seeking ? (
+        <View testID="seek-preview" pointerEvents="none" style={touch.level} accessibilityLiveRegion="polite">
+          <SeekIcon size={18} color={c.text} strokeWidth={1.8} />
+          <Text style={touch.time}>{`${formatPlaybackTime(seeking.position)} / ${formatPlaybackTime(seeking.duration)}`}</Text>
+          <Text style={[touch.time, { color: c.accent }]}>{signedSeconds(seeking.delta)}</Text>
+        </View>
+      ) : level && (
         <View pointerEvents="none" style={touch.level} accessibilityLiveRegion="polite">
           <Icon size={18} color={c.text} strokeWidth={1.8} />
           <View style={touch.levelTrack}><View style={{ width: `${level.value * 100}%`, height: '100%', borderRadius: 2, backgroundColor: c.text }} /></View>

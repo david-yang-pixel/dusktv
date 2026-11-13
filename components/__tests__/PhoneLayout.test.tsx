@@ -5,6 +5,7 @@ import { PlayerControls, TouchPlayerControls, TouchPlayerPanel } from '@/compone
 import { CinemaTouchControls, CinemaTouchGestures, CinemaTouchPanel, createTouchGestures } from '@/components/cinema/CinemaPlayer';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { ActivityIndicator, FlatList, Keyboard, Platform, StyleSheet, Text } from 'react-native';
+import CinemaSettings from '@/components/cinema/CinemaSettings';
 import CinemaHome from '@/components/home/CinemaHome';
 import { CinemaShell, CinemaTabBar } from '@/components/cinema/CinemaUI';
 
@@ -212,12 +213,88 @@ describe('touch gestures on the video', () => {
     expect(options.brightness.set).not.toHaveBeenCalled();
   });
 
+  // A 400-wide picture; one full width is two minutes of video.
+  const seekSetup = (timeline = { position: 60000, duration: 600000 }) => {
+    const previews: ({ position: number; delta: number } | null)[] = [];
+    const seek = { get: jest.fn(() => timeline), to: jest.fn() };
+    const made = setup({ seek, onSeeking: (preview: { position: number; delta: number } | null) => { previews.push(preview && { position: preview.position, delta: preview.delta }); } } as never);
+    return { ...made, seek, previews };
+  };
+
+  test('sliding sideways moves through the video, and only seeks once the finger lifts', () => {
+    const { gestures, options, seek, previews } = seekSetup();
+    gestures.start(100); gestures.move(20, 2);
+    gestures.move(220, 6);
+    expect(previews.at(-1)).toEqual({ position: 120000, delta: 60000 });
+    expect(seek.to).not.toHaveBeenCalled();
+    gestures.end(220, 6);
+    expect(seek.to).toHaveBeenCalledTimes(1);
+    expect(seek.to).toHaveBeenCalledWith(120000);
+    expect(previews.at(-1)).toBeNull();
+    jest.advanceTimersByTime(600);
+    expect(options.onTap).not.toHaveBeenCalled();
+    expect(options.brightness.set).not.toHaveBeenCalled();
+  });
+
+  test('sliding back stops at the start, and sliding forward stops at the end', () => {
+    const { gestures, seek, previews } = seekSetup({ position: 10000, duration: 30000 });
+    gestures.start(300); gestures.move(-20, 0); gestures.move(-320, 0);
+    expect(previews.at(-1)).toEqual({ position: 0, delta: -10000 });
+    gestures.move(380, 0);
+    expect(previews.at(-1)).toEqual({ position: 30000, delta: 20000 });
+    gestures.end(380, 0);
+    expect(seek.to).toHaveBeenCalledWith(30000);
+  });
+
+  test('a sideways slide that the system interrupts does not seek', () => {
+    const { gestures, seek, previews } = seekSetup();
+    gestures.start(100); gestures.move(20, 0); gestures.move(120, 0);
+    gestures.cancel();
+    expect(seek.to).not.toHaveBeenCalled();
+    expect(previews.at(-1)).toBeNull();
+  });
+
+  test('a video that has not loaded yet ignores a sideways slide', () => {
+    const { gestures, options, seek, previews } = seekSetup({ position: 0, duration: 0 });
+    gestures.start(100); gestures.move(20, 0); gestures.move(220, 0); gestures.end(220, 0);
+    jest.advanceTimersByTime(600);
+    expect(seek.to).not.toHaveBeenCalled();
+    expect(previews).toEqual([]);
+    expect(options.onTap).not.toHaveBeenCalled();
+  });
+
   test('a device without volume control just ignores the slide', async () => {
     const { gestures, options, levels } = setup({ volume: undefined });
     gestures.start(320); gestures.move(0, -40); await Promise.resolve(); gestures.move(0, -90); gestures.end(0, -90);
     jest.advanceTimersByTime(600);
     expect(levels.filter(Boolean)).toEqual([]);
     expect(options.onTap).not.toHaveBeenCalled();
+  });
+});
+
+describe('seek preview on the video', () => {
+  // PanResponder reads finger positions from the touch history rather than from the event itself.
+  const finger = (x: number, y: number, time: number, previous = { x, y, time }) => ({
+    nativeEvent: { locationX: x, locationY: y },
+    touchHistory: { numberActiveTouches: 1, indexOfSingleActiveTouch: 0, mostRecentTimeStamp: time, touchBank: [{ touchActive: true, startPageX: 100, startPageY: 100, startTimeStamp: 0, currentPageX: x, currentPageY: y, currentTimeStamp: time, previousPageX: previous.x, previousPageY: previous.y, previousTimeStamp: previous.time }] },
+  });
+
+  test('shows where a sideways slide will land, then seeks there on release', () => {
+    const seek = { get: () => ({ position: 60000, duration: 600000 }), to: jest.fn() };
+    let tree!: ReactTestRenderer;
+    act(() => { tree = create(<CinemaTouchGestures onTap={jest.fn()} onDoubleTap={jest.fn()} seek={seek} />); });
+    const picture = tree.root.findAll(node => typeof node.type === 'string' && typeof node.props.onResponderGrant === 'function')[0];
+    const shown = () => tree.root.findAllByType(Text).map(node => node.props.children);
+    act(() => picture.props.onLayout({ nativeEvent: { layout: { width: 400, height: 225 } } }));
+    act(() => picture.props.onResponderGrant(finger(100, 100, 0)));
+    act(() => picture.props.onResponderMove(finger(120, 100, 10, { x: 100, y: 100, time: 0 })));
+    act(() => picture.props.onResponderMove(finger(320, 100, 20, { x: 120, y: 100, time: 10 })));
+    expect(shown()).toContain('02:00 / 10:00');
+    expect(shown()).toContain('+60 秒');
+    act(() => picture.props.onResponderRelease(finger(320, 100, 30, { x: 320, y: 100, time: 20 })));
+    expect(seek.to).toHaveBeenCalledWith(120000);
+    expect(tree.root.findAllByProps({ testID: 'seek-preview' })).toHaveLength(0);
+    act(() => tree.unmount());
   });
 });
 
@@ -234,10 +311,17 @@ describe('gestures on the play screen', () => {
     Object.assign(player, {
       isLoading: false, showControls: false, initialPosition: 0, playbackRate: 1, episode: { url: 'https://example.test/1.m3u8', title: '第 1 集' },
       setVideoRef: jest.fn(), handlePlaybackStatusUpdate: jest.fn(), setShowControls: jest.fn(), togglePlayPause: jest.fn(), reset: jest.fn(), loadVideo: jest.fn(),
+      status: { isLoaded: true, positionMillis: 30000, durationMillis: 100000 }, seekTo: jest.fn(),
     });
     await act(async () => { tree = create(<PlayScreen />); });
   });
-  afterEach(() => act(() => tree.unmount()));
+  afterEach(() => { act(() => tree.unmount()); delete player.status; });
+
+  test('a sideways slide seeks from where the video is now', () => {
+    expect(gestures().seek.get()).toEqual({ position: 30000, duration: 100000 });
+    gestures().seek.to(45000);
+    expect(player.seekTo).toHaveBeenCalledWith(45000);
+  });
 
   test('a tap shows the controls and a double tap toggles playback', () => {
     act(() => gestures().onTap());
@@ -449,6 +533,28 @@ describe('phone home', () => {
     expect(onOpen).toHaveBeenCalledWith(movies[2]);
   });
 
+  test('portrait: pulling the feed down reloads it, and shows the spinner while it does', () => {
+    const onRefresh = jest.fn();
+    const feed = (refreshing: boolean, loading = false) => {
+      Object.assign(windowSize, { width: 390, height: 844 });
+      let tree!: ReactTestRenderer;
+      act(() => {
+        tree = create(<CinemaHome categories={[category]} selectedCategory={category} items={movies} loading={loading} loadingMore={false} isLoggedIn refreshing={refreshing} onRefresh={onRefresh}
+          onCategorySelect={jest.fn()} onTagSelect={jest.fn()} onOpen={jest.fn()} onRemoveRecord={jest.fn()} onLoadMore={jest.fn()} onRetry={jest.fn()} onNavigate={jest.fn()} onLogout={jest.fn()} imageUrl={url => url} />);
+      });
+      return tree.root.findAllByType(FlatList).find(list => list.props.testID === 'home-posters')!.props.refreshControl;
+    };
+    const idle = feed(false);
+    expect(idle.props.refreshing).toBe(false);
+    act(() => idle.props.onRefresh());
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(feed(true).props.refreshing).toBe(true);
+    // It stays in place through a full reload: taking it away would rebuild the list underneath on Android.
+    expect(feed(false, true)).toBeDefined();
+    // Nothing to pull where no reload was wired up, e.g. the browser preview.
+    expect(render({ width: 390, height: 844 }).posters()!.props.refreshControl).toBeUndefined();
+  });
+
   test('portrait: the feature and categories scroll with the feed, and an empty category says so', () => {
     const filled = render({ width: 390, height: 844 });
     expect(filled.posters()!.findAllByProps({ testID: 'home-feature' }).length).toBeGreaterThan(0);
@@ -478,5 +584,24 @@ describe('phone home', () => {
       expect(list.props.horizontal).toBe(true);
       expect(list.props.numColumns ?? 1).toBe(1);
     }
+  });
+});
+
+describe('phone settings', () => {
+  const sections = (props: Partial<React.ComponentProps<typeof CinemaSettings>>) => {
+    let tree!: ReactTestRenderer;
+    act(() => {
+      tree = create(<CinemaSettings onNavigate={jest.fn()} apiUrl="https://server.example" m3uUrl="" remoteEnabled={false} remoteRunning={false} loggedIn dirty={false} saving={false}
+        onApiChange={jest.fn()} onM3uChange={jest.fn()} onRemoteChange={jest.fn()} onSave={jest.fn()} onAccount={jest.fn()} {...props} />);
+    });
+    return new Set(tree.root.findAllByType(Text).map(node => node.props.children).filter(text => typeof text === 'string'));
+  };
+
+  test('typing from a phone is offered only where the service behind it can run', () => {
+    const phone = sections({ remoteAvailable: false });
+    expect(phone.has('手机遥控输入')).toBe(false);
+    expect(phone.has('允许远程输入')).toBe(false);
+    expect(phone.has('直播频道')).toBe(true);
+    expect(sections({ remoteAvailable: true }).has('手机遥控输入')).toBe(true);
   });
 });

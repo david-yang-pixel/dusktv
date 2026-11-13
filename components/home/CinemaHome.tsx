@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Platform, ScrollView,
+  ActivityIndicator, FlatList, Platform, RefreshControl, ScrollView,
   StyleSheet, Text, View, useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,6 +9,7 @@ import { cinema as c } from '@/constants/CinemaTheme';
 import { CinemaButton as TVButton, CinemaPoster as Poster, PosterImage, CinemaHeader, CinemaTabBar, useCinemaLayout } from '@/components/cinema/CinemaUI';
 import type { CinemaItem, CinemaPage } from '@/components/cinema/CinemaUI';
 import type { Category } from '@/stores/homeStore';
+import { isTouchDevice } from '@/utils/DeviceUtils';
 
 export type { CinemaItem } from '@/components/cinema/CinemaUI';
 
@@ -18,6 +19,9 @@ interface Props {
   items: CinemaItem[];
   loading: boolean;
   loadingMore: boolean;
+  /** Pull to refresh on touch layouts: the list stays in place while it reloads. */
+  refreshing?: boolean;
+  onRefresh?: () => void;
   message?: string;
   needsConfiguration?: boolean;
   isLoggedIn: boolean;
@@ -113,6 +117,11 @@ export default function CinemaHome(props: Props) {
           </>}
         </View>
   );
+  // A remote has nothing to pull with. It is not taken away while loading: on Android the control
+  // wraps the list, so removing it would rebuild the list underneath.
+  const pull = props.onRefresh && isTouchDevice()
+    ? <RefreshControl refreshing={!!props.refreshing} onRefresh={props.onRefresh} tintColor={c.accent} colors={[c.accent]} progressBackgroundColor={c.surface} />
+    : undefined;
   const more = props.loadingMore ? <ActivityIndicator accessibilityLabel="加载更多影片" color={c.accent} style={{ margin: 32 * scale }} /> : null;
 
   return (
@@ -142,12 +151,13 @@ export default function CinemaHome(props: Props) {
           columnWrapperStyle={{ gap: FEED_GAP, paddingHorizontal: gutter - 5, marginBottom: 20 }}
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={pull}
           onEndReached={props.onLoadMore}
           onEndReachedThreshold={0.6}
           removeClippedSubviews={false}
         />
       ) : (
-        <ScrollView ref={scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 * scale }}>
+        <ScrollView ref={scroll} refreshControl={pull} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 * scale }}>
           {feature}
           {categories}
           {showContent ? <>

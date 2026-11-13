@@ -16,6 +16,8 @@ const mockSettings = {
   setM3uUrl: jest.fn((value: string) => { mockSettings.m3uUrl = value; }),
   setRemoteInputEnabled: jest.fn((value: boolean) => { mockSettings.remoteInputEnabled = value; }),
 };
+const mockLayout = { deviceType: 'tv' };
+jest.mock('@/hooks/useResponsiveLayout', () => ({ useResponsiveLayout: () => mockLayout }));
 jest.mock('@/components/cinema/CinemaSettings', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/settings/UpdateSection', () => ({ UpdateSection: () => null }));
 jest.mock('@/hooks/useCinemaNavigation', () => ({ useCinemaNavigation: () => ({ onNavigate: mockNavigate, onBack: mockBack }) }));
@@ -35,6 +37,7 @@ jest.mock('react-native-toast-message', () => ({ __esModule: true, default: { sh
 let tree: ReactTestRenderer;
 const props = () => tree.root.findByType(CinemaSettings).props;
 beforeEach(async () => {
+  mockLayout.deviceType = 'tv';
   jest.clearAllMocks(); mockSettings.apiBaseUrl = 'https://saved.example'; mockSettings.m3uUrl = ''; mockSettings.remoteInputEnabled = false; mockSettings.serverConfig = { StorageType: 'redis' };
   mockLogin.mockImplementation(async () => ({ ok: true }));
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
@@ -133,4 +136,12 @@ describe('signing in from settings', () => {
     expect(mockLogin).not.toHaveBeenCalled();
     expect(props().dirty).toBe(false);
   });
+});
+
+test('a phone is not offered remote input, because the service only runs on larger screens', async () => {
+  expect(props().remoteAvailable).toBe(true);
+  act(() => tree.unmount());
+  mockLayout.deviceType = 'mobile';
+  await act(async () => { tree = create(<SettingsScreen />); });
+  expect(props().remoteAvailable).toBe(false);
 });
