@@ -30,7 +30,7 @@ export default function HomeScreen() {
   const select = (category: Category) => home.selectCategory({ ...category, tag: category.tag || category.tags?.[0] });
   const message = config.needsConfiguration ? getApiConfigErrorMessage(config) : config.error && !config.isValid ? config.error : home.error || undefined;
   return <CinemaHome categories={home.categories} selectedCategory={home.selectedCategory} items={home.contentData}
-    loading={config.isValidating || (!message && home.loading)} loadingMore={home.loadingMore} message={message} needsConfiguration={config.needsConfiguration}
+    loading={config.isValidating || (!message && home.loading)} loadingMore={home.loadingMore} refreshing={home.refreshing} onRefresh={home.refreshData} message={message} needsConfiguration={config.needsConfiguration}
     isLoggedIn={isLoggedIn} onLogout={logout} onCategorySelect={select} onTagSelect={tag => select({ ...home.selectedCategory, tag })}
     imageUrl={poster => api.getImageProxyUrl(poster)} onLoadMore={home.loadMoreData}
     onRetry={async () => { if (config.error) await useSettingsStore.getState().fetchServerConfig(); await home.fetchInitialData(); }}

@@ -9,11 +9,13 @@ interface LivePlayerProps {
   streamUrl: string | null;
   channelTitle?: string | null;
   onPlaybackStatusUpdate: (status: AVPlaybackStatus) => void;
+  /** 盖在画面上的触摸手势层。只在有画面时渲染，播放失败时不能挡住“重新连接”按钮。 */
+  gestures?: React.ReactNode;
 }
 
 const PLAYBACK_TIMEOUT = 15000; // 15 seconds
 
-export default function LivePlayer({ streamUrl, channelTitle, onPlaybackStatusUpdate }: LivePlayerProps) {
+export default function LivePlayer({ streamUrl, channelTitle, onPlaybackStatusUpdate, gestures }: LivePlayerProps) {
   const video = useRef<Video>(null);
   const [attempt, setAttempt] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -108,8 +110,9 @@ export default function LivePlayer({ streamUrl, channelTitle, onPlaybackStatusUp
           <Text style={styles.messageText}>加载中...</Text>
         </View>
       )}
+      {gestures}
       {channelTitle && !isLoading && !isTimeout && (
-        <View style={styles.overlay}>
+        <View pointerEvents="none" style={styles.overlay}>
           <Text style={styles.title}>{channelTitle}</Text>
         </View>
       )}

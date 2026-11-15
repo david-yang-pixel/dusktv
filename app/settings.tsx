@@ -5,6 +5,7 @@ import { UNSTABLE_usePreventRemove as usePreventRemove } from '@react-navigation
 import CinemaSettings from '@/components/cinema/CinemaSettings';
 import { UpdateSection } from '@/components/settings/UpdateSection';
 import { useCinemaNavigation } from '@/hooks/useCinemaNavigation';
+import { useResponsiveLayout } from '@/hooks/useResponsiveLayout';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useRemoteControlStore } from '@/stores/remoteControlStore';
 import useAuthStore from '@/stores/authStore';
@@ -16,6 +17,8 @@ export default function SettingsScreen() {
   const navigation = useCinemaNavigation();
   const settings = useSettingsStore();
   const stack = useNavigation();
+  // 远程输入服务只在非手机设备上启动（见 app/_layout.tsx），手机上不显示这个开关
+  const { deviceType } = useResponsiveLayout();
   const allowLeave = useRef(false);
   const edited = useRef(false);
   const [draft, setDraft] = useState(() => ({ api: settings.apiBaseUrl, m3u: settings.m3uUrl, remote: settings.remoteInputEnabled }));
@@ -88,7 +91,7 @@ export default function SettingsScreen() {
     Alert.alert('设置尚未保存', '离开后将放弃未保存的更改。', [{ text: '继续编辑', style: 'cancel' }, { text: '放弃更改', style: 'destructive', onPress: () => { const value = useSettingsStore.getState(); setDraft({ api: value.apiBaseUrl, m3u: value.m3uUrl, remote: value.remoteInputEnabled }); discard(); allowLeave.current = true; action(); } }]);
   };
   return <CinemaSettings onNavigate={page => leave(() => navigation.onNavigate(page))} onBack={() => leave(navigation.onBack)}
-    apiUrl={draft.api} m3uUrl={draft.m3u} remoteEnabled={draft.remote} remoteRunning={remote.isServerRunning} remoteUrl={remote.serverUrl || undefined} remoteError={remote.error}
+    apiUrl={draft.api} m3uUrl={draft.m3u} remoteEnabled={draft.remote} remoteAvailable={deviceType !== 'mobile'} remoteRunning={remote.isServerRunning} remoteUrl={remote.serverUrl || undefined} remoteError={remote.error}
     loggedIn={auth.isLoggedIn && draft.api.trim() === settings.apiBaseUrl} dirty={dirty} saving={saving} onSave={save} onFieldFocus={setField}
     account={{ ...account, error: accountError, onUsername: username => editAccount({ username }), onPassword: password => editAccount({ password }) }}
     onApiChange={value => { setDraft(previous => ({ ...previous, api: value })); edited.current = true; allowLeave.current = false; setDirty(true); }} onM3uChange={value => { setDraft(previous => ({ ...previous, m3u: value })); edited.current = true; allowLeave.current = false; setDirty(true); }} onRemoteChange={value => { setDraft(previous => ({ ...previous, remote: value })); edited.current = true; allowLeave.current = false; setDirty(true); }}
