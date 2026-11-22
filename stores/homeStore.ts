@@ -81,11 +81,14 @@ interface HomeState {
   contentData: RowItem[];
   loading: boolean;
   loadingMore: boolean;
+  /** 下拉刷新进行中。和 loading 分开：刷新时列表留在原地，不换成整页的加载状态。 */
+  refreshing: boolean;
   pageStart: number;
   hasMore: boolean;
   error: string | null;
   fetchInitialData: () => Promise<void>;
   loadMoreData: () => Promise<void>;
+  refreshData: () => Promise<void>;
   selectCategory: (category: Category) => void;
   refreshPlayRecords: () => Promise<void>;
   clearError: () => void;
@@ -100,6 +103,7 @@ const useHomeStore = create<HomeState>((set, get) => ({
   contentData: [],
   loading: true,
   loadingMore: false,
+  refreshing: false,
   pageStart: 0,
   hasMore: true,
   error: null,
@@ -271,6 +275,20 @@ const useHomeStore = create<HomeState>((set, get) => ({
       set({ error: errorMessage });
     } finally {
       set({ loading: false, loadingMore: false });
+    }
+  },
+
+  // 下拉刷新：丢掉当前分类的缓存，重新取第一页。新数据到达前保留现有列表
+  refreshData: async () => {
+    const { selectedCategory, refreshing, loading, loadingMore } = get();
+    // 首次加载或加载下一页还没结束时不刷新，否则两个请求的结果会互相覆盖
+    if (refreshing || loading || loadingMore) return;
+    dataCache.delete(getCacheKey(selectedCategory));
+    set({ refreshing: true, pageStart: 0, hasMore: true, error: null });
+    try {
+      await get().loadMoreData();
+    } finally {
+      set({ refreshing: false });
     }
   },
 
